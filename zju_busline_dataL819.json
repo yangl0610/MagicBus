@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "data": [
+    {
+      "vehiNum": "013",
+      "px": 120.072978,
+      "py": 30.299861,
+      "speedTime": "2024-05-05T23:35:07.000+00:00",
+      "vehicleType": "2",
+      "direction": 159
+    },
+    {
+      "vehiNum": "031",
+      "px": 120.075792,
+      "py": 30.305742,
+      "speedTime": "2025-11-30T13:53:18.000+00:00",
+      "vehicleType": "2",
+      "direction": 244
+    },
+    {
+      "vehiNum": "浙A37502D",
+      "px": 120.07032,
+      "py": 30.305154,
+      "speedTime": "2025-11-30T08:52:40.000+00:00",
+      "vehicleType": "3",
+      "direction": 267
+    }
+  ],
+  "message": null
+}

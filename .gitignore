@@ -1,11 +1,4 @@
-# 忽略敏感配置文件
-config.py
-secrets.py
-
 # 忽略 Python 缓存和虚拟环境
 __pycache__/
 .venv/
 env/
-
-# 忽略爬下来的数据文件（因为它是动态变化的，不需要存代码库）
-*.json

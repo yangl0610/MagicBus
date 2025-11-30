@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "data": [
+    {
+      "vehiNum": "浙A37372D",
+      "px": 120.070231,
+      "py": 30.305107,
+      "speedTime": "2025-11-30T11:22:47.000+00:00",
+      "vehicleType": "3",
+      "direction": 341
+    }
+  ],
+  "message": null
+}
