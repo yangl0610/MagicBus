@@ -2,7 +2,7 @@ import requests
 import json
 
 # 接口地址
-url = "https://bccx.zju.edu.cn/schoolbus_wx/xbc/getXbcVehicleByLine"
+url = "https://bccx.zju.edu.cn/schoolbus_wx/xbc/getXbcLine"
 
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -32,7 +32,7 @@ try:
         print("第一条线路名为:", data['data'][0].get('xclx')) # 猜测字段名为 xclx (校车路线) 或 line_name
         
         # 保存到文件，这就是我们做网站的“原料”
-        with open("zju_buslocation_data.json", "w", encoding="utf-8") as f:
+        with open("zju_busline_data.json", "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
             print("数据已保存为 zju_bus_data.json")
     else:
