@@ -1,0 +1,38 @@
+{
+  "success": true,
+  "data": [
+    {
+      "vehiNum": "013",
+      "px": 120.072978,
+      "py": 30.299861,
+      "speedTime": "2024-05-05T23:35:07.000+00:00",
+      "vehicleType": "2",
+      "direction": 159
+    },
+    {
+      "vehiNum": "017",
+      "px": 120.074345,
+      "py": 30.297589,
+      "speedTime": "2025-12-01T08:30:50.000+00:00",
+      "vehicleType": "2",
+      "direction": 170
+    },
+    {
+      "vehiNum": "038",
+      "px": 120.07296,
+      "py": 30.301606,
+      "speedTime": "2025-12-01T08:30:52.000+00:00",
+      "vehicleType": "2",
+      "direction": 179
+    },
+    {
+      "vehiNum": "浙A37806D",
+      "px": 120.083695,
+      "py": 30.308632,
+      "speedTime": "2025-12-01T08:37:33.000+00:00",
+      "vehicleType": "3",
+      "direction": 272
+    }
+  ],
+  "message": null
+}

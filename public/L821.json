@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "data": [
+    {
+      "vehiNum": "019",
+      "px": 120.082343,
+      "py": 30.297083,
+      "speedTime": "2025-12-01T08:30:50.000+00:00",
+      "vehicleType": "2",
+      "direction": 91
+    },
+    {
+      "vehiNum": "021",
+      "px": 120.083534,
+      "py": 30.308221,
+      "speedTime": "2025-12-01T08:30:53.000+00:00",
+      "vehicleType": "2",
+      "direction": 160
+    }
+  ],
+  "message": null
+}
