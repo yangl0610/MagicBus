@@ -55,7 +55,6 @@
           class="station-marker"
           :style="getMarkerStyle(station.stationLat, station.stationLong)"
         >
-          <!-- 地图上的站点点 -->
           <div 
             class="station-dot"
             :class="{ 'is-selected': selectedStationIndex === index }"
@@ -98,11 +97,14 @@
     <div 
       class="bottom-panel" 
       :class="{ 'is-collapsed': !isPanelOpen }"
-      @touchstart="onPanelTouchStart"
-      @touchmove="onPanelTouchMove"
-      @touchend="onPanelTouchEnd"
     >
-      <div class="panel-handle-bar" @click="togglePanel">
+      <div 
+        class="panel-handle-bar" 
+        @click="togglePanel"
+        @touchstart.stop="onPanelTouchStart"
+        @touchmove.stop="onPanelTouchMove"
+        @touchend.stop="onPanelTouchEnd"
+      >
         <div class="handle"></div>
       </div>
 
@@ -144,18 +146,26 @@
            </div>
            
            <div class="header-right">
-             <!-- [修改] 替换了换向按钮，显示最近车辆信息 -->
-             <div class="nearest-bus-box" v-if="nearestBusInfo">
-               <span class="nb-label">最近车辆</span>
-               <span class="nb-plate">{{ nearestBusInfo }}</span>
+             <div class="nearest-bus-info" v-if="nearestBusToFocus">
+                <span class="nb-label">最近车辆</span>
+                <span class="nb-plate">{{ nearestBusToFocus }}</span>
              </div>
-             <div class="nearest-bus-box empty" v-else>
-               <span class="nb-label">暂无车辆</span>
+             <div class="nearest-bus-info empty" v-else>
+                <span class="nb-label">暂无车辆</span>
              </div>
            </div>
         </div>
 
-        <div class="linear-route-scroll" v-if="currentStations.length > 0">
+        <!-- 拓扑图：增加 ref 和 鼠标拖拽事件支持 -->
+        <div 
+          class="linear-route-scroll" 
+          v-if="currentStations.length > 0"
+          ref="routeScrollRef"
+          @pointerdown="onListPointerDown"
+          @pointermove="onListPointerMove"
+          @pointerup="onListPointerUp"
+          @pointerleave="onListPointerUp"
+        >
           <div class="linear-route-track">
             <div class="route-line-bg"></div>
             <div 
@@ -166,11 +176,12 @@
                 'is-nearest': nearestStationToUser?.index === index,
                 'is-selected': selectedStationIndex === index
               }"
+              :id="'station-node-' + index"
               @click="selectStation(index)"
             >
               <div class="node-dot-wrapper">
                 <div class="node-dot"></div>
-                <!-- 定位图标：仅当没有手动选择站点时，才显示定位标，避免视觉冲突 -->
+                <div class="node-dot-ring" v-if="selectedStationIndex === index"></div>
                 <div class="user-location-badge" v-if="nearestStationToUser?.index === index && selectedStationIndex === null">
                   <van-icon name="location" />
                 </div>
@@ -209,7 +220,7 @@ import { ref, onMounted, onUnmounted, computed, reactive, nextTick, watch } from
 import { showToast } from 'vant';
 import type { bustype, linetype } from './datatype';
 
-const MAP_BOUNDS = { minLon: 120.0665, maxLon: 120.0961, minLat:30.2910, maxLat: 30.3148 };
+const MAP_BOUNDS = { minLon: 120.068, maxLon: 120.095, minLat: 30.292, maxLat: 30.312 };
 const activeTabId = ref<any>("L820");
 const API_URLS = { LINE_DATA: '/bus_line_data.json', BUS_DATA_PREFIX: '/' };
 
@@ -220,6 +231,9 @@ const isPanelOpen = ref(true);
 const userLocation = ref<{ lat: number, lng: number } | null>(null);
 const cachedNearestStation = ref<{ station: any, index: number, distance: number } | null>(null);
 const selectedStationIndex = ref<number | null>(null);
+
+// [新增] 线路图滚动 ref
+const routeScrollRef = ref<HTMLElement | null>(null);
 
 let timer: number | null = null;
 
@@ -278,7 +292,11 @@ const getLimits = () => {
   const currentH = naturalHeight * mapState.scale;
   const limitX = Math.max(0, (currentW - containerWidth) / 2);
   const limitY = Math.max(0, (currentH - containerHeight) / 2);
-  return { limitX, limitY };
+  const OVERSCROLL = 300; 
+  return { 
+    limitX: limitX + OVERSCROLL, 
+    limitY: limitY + OVERSCROLL 
+  };
 };
 
 const onPointerDown = (e: PointerEvent) => {
@@ -375,6 +393,9 @@ const getUserLocation = () => {
       userLocation.value = { lat, lng };
       showToast('定位成功');
       recalculateNearestStation();
+      if (cachedNearestStation.value) {
+        selectedStationIndex.value = cachedNearestStation.value.index;
+      }
       jumpToUserLocation();
     },
     (error) => {
@@ -386,12 +407,12 @@ const getUserLocation = () => {
 
 const jumpToUserLocation = () => {
   if (!userLocation.value) return;
-  const { x: percentX, y: percentY } = geoToPercent(userLocation.value.lat, userLocation.value.lng);
-  
-  if (percentX < -50 || percentX > 150 || percentY < -50 || percentY > 150) {
-    showToast('当前位置不在校车运行范围内');
-    return;
-  }
+  jumpToCoords(userLocation.value.lat, userLocation.value.lng);
+};
+
+const jumpToCoords = (lat: number, lng: number) => {
+  const { x: percentX, y: percentY } = geoToPercent(lat, lng);
+  if (percentX < -50 || percentX > 150 || percentY < -50 || percentY > 150) return;
 
   const currentW = naturalWidth * mapState.scale;
   const currentH = naturalHeight * mapState.scale;
@@ -403,13 +424,12 @@ const jumpToUserLocation = () => {
   mapState.x = targetX;
   mapState.y = targetY;
   
-  nextTick(() => {
-    checkBoundsAndSnap();
-  });
+  nextTick(() => { checkBoundsAndSnap(); });
 };
 
 const isSmallCar = (type: any) => String(type) === '3';
 
+// --- 面板手势 ---
 const onPanelTouchStart = (e: TouchEvent) => {
   panelTouch.startY = e.touches[0].clientY;
   panelTouch.moving = true;
@@ -483,55 +503,7 @@ const getStationETA = (stationIndex: number) => {
   return { text: `${mins}分`, isArriving: false };
 };
 
-// [修改] 核心逻辑：重新计算最近站点
-// 确保使用 currentStations（当前线路的站点）进行计算
-const recalculateNearestStation = () => {
-  // 必须重新获取 currentStations.value，因为它依赖 activeTabId
-  const stations = currentStations.value;
-  
-  if (!userLocation.value || stations.length === 0) {
-    cachedNearestStation.value = null;
-    return;
-  }
-  
-  let minDist = Infinity;
-  let nearestStation = null;
-  let nearestIndex = -1;
-
-  stations.forEach((st, index) => {
-    const d = Math.pow(st.stationLong - userLocation.value!.lng, 2) + 
-              Math.pow(st.stationLat - userLocation.value!.lat, 2);
-    if (d < minDist) {
-      minDist = d;
-      nearestStation = st;
-      nearestIndex = index;
-    }
-  });
-
-  cachedNearestStation.value = {
-    station: nearestStation,
-    index: nearestIndex,
-    distance: minDist
-  };
-};
-
-const nearestStationToUser = computed(() => cachedNearestStation.value);
-
-// [关键] 监听线路变化，确保数据刷新后再重算
-watch(activeTabId, async () => {
-  selectedStationIndex.value = null;
-  // 等待 computed 属性 currentStations 更新
-  await nextTick();
-  recalculateNearestStation();
-});
-
-const selectStation = (index: number) => {
-  selectedStationIndex.value = index;
-};
-
-// [新增] 计算距离目标站点最近车辆的信息
-const nearestBusInfo = computed(() => {
-  // 1. 确定目标站点 (优先手动选择，其次定位最近)
+const nearestBusToFocus = computed(() => {
   let targetIndex = -1;
   if (selectedStationIndex.value !== null) {
     targetIndex = selectedStationIndex.value;
@@ -545,7 +517,6 @@ const nearestBusInfo = computed(() => {
   let targetBus = null;
 
   busList.value.forEach(bus => {
-    // 找到这辆车当前位置对应的最近站点索引
     let closestIdx = -1;
     let minDist = Infinity;
     currentStations.value.forEach((st, idx) => {
@@ -554,8 +525,6 @@ const nearestBusInfo = computed(() => {
     });
 
     const stopsDiff = targetIndex - closestIdx;
-    
-    // 逻辑：找还没过站的车中，离得最近的
     if (stopsDiff >= 0) {
       if (stopsDiff < minStops) {
         minStops = stopsDiff;
@@ -564,9 +533,83 @@ const nearestBusInfo = computed(() => {
     }
   });
 
-  // 返回车牌后三位
   return targetBus ? targetBus.vehiNum.slice(-3) : null;
 });
+
+const recalculateNearestStation = () => {
+  const stations = currentStations.value;
+  if (!userLocation.value || stations.length === 0) {
+    cachedNearestStation.value = null;
+    return;
+  }
+  let minDist = Infinity;
+  let nearestStation = null;
+  let nearestIndex = -1;
+  stations.forEach((st, index) => {
+    const d = Math.pow(st.stationLong - userLocation.value!.lng, 2) + 
+              Math.pow(st.stationLat - userLocation.value!.lat, 2);
+    if (d < minDist) { minDist = d; nearestStation = st; nearestIndex = index; }
+  });
+  cachedNearestStation.value = { station: nearestStation, index: nearestIndex, distance: minDist };
+  
+  // [新增] 自动滚动到最近站点
+  nextTick(() => { autoScrollToStation(nearestIndex); });
+};
+
+const nearestStationToUser = computed(() => cachedNearestStation.value);
+
+watch(activeTabId, async () => {
+  selectedStationIndex.value = null;
+  await nextTick();
+  recalculateNearestStation();
+});
+
+const selectStation = (index: number) => {
+  selectedStationIndex.value = index;
+  const st = currentStations.value[index];
+  if (st) jumpToCoords(st.stationLat, st.stationLong);
+  
+  // [新增] 点击时也自动滚动居中
+  autoScrollToStation(index);
+};
+
+// [新增] 自动横向滚动到指定站点
+const autoScrollToStation = (index: number) => {
+  if (!routeScrollRef.value) return;
+  
+  // 找到对应的 DOM 元素
+  const targetEl = document.getElementById('station-node-' + index);
+  if (targetEl) {
+    targetEl.scrollIntoView({ 
+      behavior: 'smooth', 
+      block: 'nearest', 
+      inline: 'center'  // 核心：横向居中
+    });
+  }
+};
+
+// [新增] 列表拖拽逻辑
+const listDrag = reactive({ startX: 0, startScrollLeft: 0, isDragging: false });
+
+const onListPointerDown = (e: PointerEvent) => {
+  if (!routeScrollRef.value) return;
+  listDrag.isDragging = true;
+  listDrag.startX = e.clientX;
+  listDrag.startScrollLeft = routeScrollRef.value.scrollLeft;
+  (e.target as HTMLElement).setPointerCapture(e.pointerId);
+};
+
+const onListPointerMove = (e: PointerEvent) => {
+  if (!listDrag.isDragging || !routeScrollRef.value) return;
+  e.preventDefault();
+  const deltaX = e.clientX - listDrag.startX;
+  routeScrollRef.value.scrollLeft = listDrag.startScrollLeft - deltaX;
+};
+
+const onListPointerUp = (e: PointerEvent) => {
+  listDrag.isDragging = false;
+  (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+};
 
 const overallNearestETA = computed(() => {
     if (busList.value.length === 0 || currentStations.value.length === 0) return '当前暂无车辆运行';

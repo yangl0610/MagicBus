@@ -2,14 +2,6 @@
   "success": true,
   "data": [
     {
-      "vehiNum": "035",
-      "px": 120.083621,
-      "py": 30.308874,
-      "speedTime": "2025-12-02T13:20:46.000+00:00",
-      "vehicleType": "2",
-      "direction": 256
-    },
-    {
       "vehiNum": "浙A37372D",
       "px": 120.070303,
       "py": 30.305188,
