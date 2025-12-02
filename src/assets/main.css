@@ -1,120 +1,348 @@
 @import './base.css';
 
-#app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  font-weight: normal;
-}
-
-a,
-.green {
-  text-decoration: none;
-  color: hsla(160, 100%, 37%, 1);
-  transition: 0.4s;
-  padding: 3px;
-}
-
-@media (hover: hover) {
-  a:hover {
-    background-color: hsla(160, 100%, 37%, 0.2);
-  }
-}
-
-@media (min-width: 1024px) {
-  body {
-    display: flex;
-    place-items: center;
-  }
-
-  #app {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 0 2rem;
-  }
-}
 body {
-  background-color: #f7f8fa;
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Segoe UI, Arial, Roboto, 'PingFang SC', 'miui', 'Hiragino Sans GB', 'Microsoft Yahei', sans-serif;
+  overflow: hidden; 
+  user-select: none;
+  -webkit-user-select: none;
+  background-color: #f2f3f5;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, sans-serif;
 }
 
-.card-list {
-  padding: 12px;
-}
-
-.bus-card {
-  background: white;
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-.line-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 8px;
-}
-
-.line-name {
-  font-size: 18px;
-  font-weight: bold;
-  color: #333;
-}
-
-.bus-info {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.info-item {
+.app-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-.label {
-  font-size: 12px;
-  color: #999;
-  margin-bottom: 4px;
+/* === 1. 地图层 === */
+.map-container {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0; left: 0;
+  z-index: 1;
+  background-color: #e5e3df;
+  overflow: hidden;
+  touch-action: none;
+  box-shadow: inset 0 0 40px rgba(0,0,0,0.05); 
 }
 
-.value {
-  font-size: 16px;
-  font-weight: 500;
-  color: #323233;
+.map-wrapper {
+  position: absolute;
+  top: 50%; left: 50%;
+  display: flex; justify-content: center; align-items: center;
+  will-change: transform;
 }
 
-.bus-footer {
-  font-size: 12px;
-  color: #07c160;
-  display: flex;
-  align-items: center;
+.map-wrapper.map-shifted {
+  margin-top: -20vh;
+  transition: margin-top 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.status-dot {
-  width: 6px;
-  height: 6px;
-  background-color: #07c160;
+.map-image {
+  display: block;
+  min-width: 100vw; min-height: 100vh;
+  width: auto; height: auto;
+  pointer-events: none; -webkit-touch-callout: none;
+}
+
+.map-overlay {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none; z-index: 2;
+}
+
+/* === 地图控件 === */
+.map-controls {
+  position: absolute;
+  right: 16px; top: 100px; 
+  display: flex; flex-direction: column; gap: 10px;
+  z-index: 50;
+  transition: top 0.3s ease;
+}
+.map-controls.shifted { top: 60px; }
+
+.control-btn {
+  width: 44px; height: 44px;
+  background: white; border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px; color: #333;
+}
+.control-btn:active { background: #f5f5f5; transform: scale(0.96); }
+.control-btn.active { color: #1989fa; }
+
+/* === 站点标记 === */
+.station-marker {
+  position: absolute; transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.station-dot {
+  width: 6px; height: 6px;
+  background: #fff; border: 2px solid #666; border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: all 0.3s ease;
+}
+.station-dot.is-selected {
+  background-color: #1989fa; border-color: #fff;
+  transform: scale(1.5);
+  box-shadow: 0 0 0 4px rgba(25, 137, 250, 0.3);
+}
+
+/* === 用户位置标记 === */
+.user-marker {
+  position: absolute; transform: translate(-50%, -50%);
+  z-index: 40; pointer-events: none;
+}
+.user-dot {
+  width: 12px; height: 12px;
+  background-color: #1989fa;
+  border: 2px solid #fff;
   border-radius: 50%;
-  margin-right: 6px;
-  animation: blink 2s infinite;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+  position: relative; z-index: 2;
+}
+.user-dot-pulse {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px; height: 12px;
+  background-color: rgba(25, 137, 250, 0.4);
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+  z-index: 1;
+}
+@keyframes pulse {
+  0% { width: 12px; height: 12px; opacity: 1; }
+  100% { width: 40px; height: 40px; opacity: 0; }
 }
 
-@keyframes blink {
-  0% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.4;
-  }
-
-  100% {
-    opacity: 1;
-  }
+/* === 车辆标记 === */
+.bus-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 30;
 }
+.bus-rotate-container {
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.3s ease;
+}
+.bus-label {
+  font-size: 10px; font-weight: 700; color: #333;
+  background: rgba(255,255,255,0.95);
+  padding: 1px 4px; border-radius: 4px;
+  margin-top: 4px; white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  text-align: center;
+  font-family: "DIN Alternate", sans-serif;
+}
+
+.school-bus-icon { position: relative; }
+.school-bus-icon .bus-lights-l, .school-bus-icon .bus-lights-r { position: absolute; }
+
+.school-bus-icon.bus-red {
+  width: 16px; height: 32px;
+  background-color: #f5222d;
+  border-radius: 3px; border: 1px solid #cf1322;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+.bus-red .bus-roof {
+  position: absolute; top: 8px; left: 2px; right: 2px; bottom: 4px;
+  background: rgba(255,255,255,0.3); border-radius: 1px;
+}
+.bus-red .bus-windshield {
+  position: absolute; top: 1px; left: 1px; right: 1px; height: 5px;
+  background: #333; border-radius: 2px 2px 0 0;
+}
+.bus-red .bus-lights-l, .bus-red .bus-lights-r { top: 0; width: 3px; height: 2px; background: #ffd700; }
+.bus-red .bus-lights-l { left: 1px; } .bus-red .bus-lights-r { right: 1px; }
+
+.school-bus-icon.bus-white {
+  width: 18px; height: 28px;
+  background-color: #ffffff;
+  border: 2px solid #1989fa; border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+.bus-white .bus-roof {
+  position: absolute; top: 6px; left: 2px; right: 2px; bottom: 6px;
+  background: #e6f7ff; border-radius: 2px;
+}
+.bus-white .bus-windshield {
+  position: absolute; top: 0; left: 4px; right: 4px; height: 4px;
+  background: #1989fa; border-radius: 0 0 2px 2px;
+}
+.bus-white .bus-lights-l, .bus-white .bus-lights-r {
+  top: -1px; width: 4px; height: 3px;
+  background: #ffd700; border-radius: 1px; box-shadow: 0 0 2px #ffd700; z-index: 2;
+}
+.bus-white .bus-lights-l { left: 2px; } .bus-white .bus-lights-r { right: 2px; }
+
+/* === 2. 底部面板 === */
+.bottom-panel {
+  position: absolute;
+  bottom: 0; left: 0;
+  width: 100%; height: 45vh;
+  background: #fff;
+  border-top-left-radius: 24px; border-top-right-radius: 24px;
+  box-shadow: 0 -8px 24px rgba(0,0,0,0.08);
+  z-index: 100;
+  display: flex; flex-direction: column;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform: translateY(0);
+}
+
+/* [修改] 收起时位置更靠下 */
+.bottom-panel.is-collapsed { transform: translateY(calc(45vh - 130px)); }
+
+.panel-handle-bar {
+  width: 100%; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: grab; flex-shrink: 0;
+}
+.handle { width: 40px; height: 5px; background: #e5e5e5; border-radius: 3px; }
+
+.tabs-container { flex-shrink: 0; border-bottom: 1px solid #f2f3f5; padding-bottom: 0px; }
+.panel-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; padding-bottom: 16px; position: relative; }
+
+/* 状态头样式优化 */
+.status-header {
+  padding: 14px 20px 8px 20px; 
+  display: flex; justify-content: space-between; align-items: flex-start;
+}
+.header-left { display: flex; flex-direction: column; gap: 6px; } 
+
+.line-eta-text {
+  font-size: 18px; font-weight: 800; color: #1989fa; letter-spacing: -0.5px;
+}
+
+.sub-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.line-direction-tag { font-size: 12px; color: #666; background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
+
+.time-tip {
+  font-size: 11px; color: #999;
+  display: flex; align-items: center; gap: 4px;
+}
+
+/* 右侧最近车辆信息 Box */
+.header-right {
+  display: flex; flex-direction: column; align-items: flex-end; justify-content: center;
+}
+.nearest-bus-box {
+  background: #f0f7ff;
+  border: 1px solid #d4e9ff;
+  border-radius: 8px;
+  padding: 4px 8px;
+  text-align: center;
+  display: flex; flex-direction: column; align-items: center;
+}
+.nearest-bus-box.empty { background: #f5f5f5; border-color: #eee; }
+
+.nb-label { font-size: 9px; color: #999; line-height: 1; margin-bottom: 2px; }
+.nb-plate { font-size: 12px; font-weight: bold; color: #1989fa; font-family: "DIN Alternate", sans-serif; }
+
+/* === 拓扑图 === */
+.linear-route-scroll { 
+  flex: 1; 
+  overflow-x: auto; 
+  padding: 20px 20px 10px 20px; 
+  -webkit-overflow-scrolling: touch; 
+  display: flex; 
+  align-items: flex-start;
+}
+.linear-route-track { display: flex; align-items: flex-start; position: relative; min-width: 100%; padding-right: 32px; }
+
+.route-line-bg { 
+  position: absolute; top: 6px; left: 10px; right: 20px; 
+  height: 4px; background-color: #ebedf0; border-radius: 2px; z-index: 0; 
+}
+
+.route-node { 
+  position: relative; 
+  display: flex; flex-direction: column; align-items: center; 
+  min-width: 70px;
+  z-index: 1; 
+  cursor: pointer;
+}
+
+/* 站点圆点 */
+.node-dot-wrapper { 
+  width: 16px; height: 16px; background: #fff; border-radius: 50%; 
+  display: flex; align-items: center; justify-content: center; 
+  z-index: 2; position: relative; 
+}
+.node-dot { 
+  width: 8px; height: 8px; background: #ccc; border-radius: 50%; 
+  transition: all 0.3s;
+}
+
+.route-node.is-selected .node-dot {
+  background-color: #1989fa;
+  transform: scale(1.3);
+  box-shadow: 0 0 0 3px rgba(25, 137, 250, 0.2);
+}
+.route-node.is-selected .node-name { color: #1989fa; font-weight: bold; }
+
+.user-location-badge {
+  position: absolute; top: -14px;
+  color: #1989fa; font-size: 14px;
+  animation: bounce-pin 1s infinite alternate;
+}
+@keyframes bounce-pin {
+  from { transform: translateY(0); }
+  to { transform: translateY(-4px); }
+}
+
+.node-name { 
+  margin-top: 8px; 
+  font-size: 12px; color: #666; 
+  text-align: center; max-width: 60px; line-height: 1.3; 
+  height: 32px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  transition: color 0.3s;
+}
+
+.node-buses-container-bottom { 
+  margin-top: 4px;
+  display: flex; flex-direction: column; gap: 4px; 
+  align-items: center; 
+  min-height: 30px;
+}
+
+.bus-on-route-icon { 
+  display: flex; flex-direction: column; align-items: center; 
+  animation: bounce 2s infinite; cursor: pointer; 
+}
+
+.css-side-bus-mini { 
+  width: 22px; height: 12px; 
+  border-radius: 2px; position: relative; 
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15); 
+}
+.css-side-bus-mini::before { 
+  content: ''; position: absolute; top: 2px; right: 2px; 
+  width: 4px; height: 4px; background: rgba(255,255,255,0.5); border-radius: 1px; 
+}
+.wheel { position: absolute; bottom: -2px; width: 4px; height: 4px; background: #333; border-radius: 50%; }
+.wheel-f { left: 3px; } .wheel-b { right: 3px; }
+
+.side-red { background: #f5222d; border: 1px solid #cf1322; }
+.side-white { background: #fff; border: 1px solid #1989fa; }
+.side-white::before { background: #1989fa; }
+
+.bus-plate-tiny { 
+  font-size: 9px; color: #333; 
+  background: rgba(245,245,245,0.8); 
+  padding: 0 2px; border-radius: 2px; 
+  margin-top: 1px; 
+  transform: scale(0.9);
+}
+
+.empty-state { padding: 32px 0; }
+
+@keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+.linear-route-scroll::-webkit-scrollbar { display: none; }

@@ -10,28 +10,28 @@
       "direction": 159
     },
     {
-      "vehiNum": "017",
-      "px": 120.074345,
-      "py": 30.297589,
-      "speedTime": "2025-12-01T08:30:50.000+00:00",
+      "vehiNum": "015",
+      "px": 120.073267,
+      "py": 30.299448,
+      "speedTime": "2025-12-02T13:20:50.000+00:00",
       "vehicleType": "2",
-      "direction": 170
+      "direction": 151
     },
     {
-      "vehiNum": "038",
-      "px": 120.07296,
-      "py": 30.301606,
-      "speedTime": "2025-12-01T08:30:52.000+00:00",
+      "vehiNum": "016",
+      "px": 120.073337,
+      "py": 30.299463,
+      "speedTime": "2025-12-02T13:20:49.000+00:00",
       "vehicleType": "2",
-      "direction": 179
+      "direction": 126
     },
     {
-      "vehiNum": "浙A37806D",
-      "px": 120.083695,
-      "py": 30.308632,
-      "speedTime": "2025-12-01T08:37:33.000+00:00",
+      "vehiNum": "浙A37502D",
+      "px": 120.070297,
+      "py": 30.305121,
+      "speedTime": "2025-12-02T10:41:49.000+00:00",
       "vehicleType": "3",
-      "direction": 272
+      "direction": 243
     }
   ],
   "message": null
