@@ -57,7 +57,7 @@ if __name__ == "__main__":
                 print(f"💥 发生严重错误: {e}")
             
             # 休息 5 秒再抓下一次 (实时性控制在这里)
-            time.sleep(5)
+            time.sleep(3)
     except FileNotFoundError:
         print("错误：找不到 bus_line_data.json，请先运行 GetBusLine.py")
 
