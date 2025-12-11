@@ -2,12 +2,12 @@
   "success": true,
   "data": [
     {
-      "vehiNum": "浙A37372D",
-      "px": 120.070303,
-      "py": 30.305188,
-      "speedTime": "2025-12-02T10:45:24.000+00:00",
+      "vehiNum": "浙A37806D",
+      "px": 120.072941,
+      "py": 30.303797,
+      "speedTime": "2025-12-11T06:19:01.000+00:00",
       "vehicleType": "3",
-      "direction": 321
+      "direction": 359
     }
   ],
   "message": null
