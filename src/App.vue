@@ -220,7 +220,7 @@ import { ref, onMounted, onUnmounted, computed, reactive, nextTick, watch } from
 import { showToast } from 'vant';
 import type { bustype, linetype } from './datatype';
 
-const MAP_BOUNDS = { minLon: 120.068, maxLon: 120.095, minLat: 30.292, maxLat: 30.312 };
+const MAP_BOUNDS = { minLon: 120.0665, maxLon: 120.0961, minLat: 30.2910, maxLat: 30.3148 };
 const activeTabId = ref<any>("L820");
 const API_URLS = { LINE_DATA: '/bus_line_data.json', BUS_DATA_PREFIX: '/' };
 
