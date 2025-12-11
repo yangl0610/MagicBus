@@ -216,7 +216,7 @@ import { showToast } from 'vant';
 import type { bustype, linetype } from './datatype';
 
 // [配置] 地图的经纬度边界 (左上角和右下角)，用于将GPS映射到图片百分比
-const MAP_BOUNDS = { minLon: 120.068, maxLon: 120.095, minLat: 30.292, maxLat: 30.312 };
+const MAP_BOUNDS = { minLon: 120.0665, maxLon: 120.0961, minLat: 30.2910, maxLat: 30.3148 };
 const activeTabId = ref<any>("L820"); // 当前选中的线路ID
 const API_URLS = { LINE_DATA: '/bus_line_data.json', BUS_DATA_PREFIX: '/' };
 
