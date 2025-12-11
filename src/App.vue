@@ -1,76 +1,116 @@
 <template>
   <div class="app-container">
-    
-    <div 
-      class="map-container" 
-      ref="mapContainerRef"
-      @pointerdown="onPointerDown"
-      @pointermove="onPointerMove"
-      @pointerup="onPointerUp"
-      @pointerleave="onPointerUp"
-      @wheel.prevent="onWheel"
-    >
-      <div 
-        class="map-wrapper" 
-        :class="{ 'is-animating': isAnimating, 'map-shifted': isPanelOpen }"
-        :style="wrapperStyle"
-      >
-        <img 
-          ref="mapImgRef"
-          src="/zjgMap.png" 
-          class="map-image" 
-          alt="Map" 
-          draggable="false" 
-          @load="initMap"
-        />
-        
+
+    <!-- 下拉切片容器 ,类is-collapsed表示下拉切片缩回时的样式-->
+    <div ref="bottomPanelRef" class="bottom-panel" :class="{ 'is-collapsed': !isPanelOpen }">
+      <div class="panel-handle-bar" @click="togglePanel" @touchstart.stop="onPanelTouchStart"
+        @touchmove.stop="onPanelTouchMove" @touchend.stop="onPanelTouchEnd">
+        <div class="handle"></div>
+      </div>
+
+      <div class="tabs-container">
+        <van-tabs v-model:active="activeTabId" shrink color="#1989fa" title-active-color="#1989fa"
+          title-inactive-color="#999" line-width="20px" line-height="3px" @click-tab="onTabChange" background="#ffffff"
+          class="custom-tabs">
+          <van-tab v-for="line in busLineData" :key="line.lid" :title="line.lineAlias" :name="line.lid" />
+        </van-tabs>
+      </div>
+
+      <div class="panel-content">
+        <div class="status-header">
+          <div class="header-left">
+            <span class="line-eta-text">{{ overallNearestETA }}</span>
+            <div class="sub-info">
+              <span class="line-direction-tag">
+                往 {{ getDestinationName() }}
+              </span>
+              <span class="time-tip" v-if="lastUpdateTime">
+                {{ lastUpdateTime }} 更新
+              </span>
+            </div>
+          </div>
+
+          <div class="header-right">
+            <div class="nearest-bus-info" v-if="nearestBusToFocus">
+              <span class="nb-label">最近车辆</span>
+              <span class="nb-plate">{{ nearestBusToFocus }}</span>
+            </div>
+            <div class="nearest-bus-info empty" v-else>
+              <span class="nb-label">暂无车辆</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="linear-route-scroll" v-if="currentStations.length > 0" ref="routeScrollRef"
+          @pointerdown="onListPointerDown" @pointermove="onListPointerMove" @pointerup="onListPointerUp"
+          @pointerleave="onListPointerUp">
+          <div class="linear-route-track">
+            <div class="route-line-bg"></div>
+            <div v-for="(station, index) in currentStations" :key="'node_' + index" class="route-node" :class="{
+              'is-nearest': nearestStationToUser?.index === index, // 离人最近的站
+              'is-selected': selectedStationIndex === index        // 选中的站
+            }" :id="'station-node-' + index" @click="selectStation(index)">
+              <div class="node-dot-wrapper">
+                <div class="node-dot"></div>
+                <div class="node-dot-ring" v-if="selectedStationIndex === index"></div>
+                <div class="user-location-badge"
+                  v-if="nearestStationToUser?.index === index && selectedStationIndex === null">
+                  <van-icon name="location" />
+                </div>
+              </div>
+
+              <div class="node-name">
+                {{ station.stationAlias }}
+              </div>
+
+              <div class="node-buses-container-bottom">
+                <div v-for="bus in getBusesNearStation(index)" :key="bus.vehiNum" class="bus-on-route-icon"
+                  @click.stop="focusBus(bus)">
+                  <div class="css-side-bus-mini" :class="isSmallCar(bus.vehicleType) ? 'side-red' : 'side-white'">
+                    <div class="wheel wheel-f"></div>
+                    <div class="wheel wheel-b"></div>
+                  </div>
+                  <div class="bus-plate-tiny">{{ bus.vehiNum.slice(-3) }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <van-empty v-else description="暂无线路数据" class="empty-state" />
+      </div>
+    </div>
+    <!-- 地图容器 -->
+    <div class="map-container" :class="{ 'is-collapsed': !isPanelOpen }" ref="mapContainerRef"
+      :style="getMapContainerHeight" @pointerdown="onPointerDown" @pointermove="onPointerMove" @pointerup="onPointerUp"
+      @pointerleave="onPointerUp" @wheel.prevent="onWheel">
+
+      <!-- 背景图层 -->
+      <div class="map-wrapper" :class="{ 'is-animating': isAnimating, 'map-shifted': isPanelOpen }"
+        :style="wrapperStyle">
+        <img ref="mapImgRef" src="/zjgMap.png" class="map-image" alt="Map" draggable="false" @load="initMap" />
+
         <svg class="map-overlay" viewBox="0 0 1000 1000" preserveAspectRatio="none">
-          <polyline 
-            v-if="currentLinePoints.length > 0"
-            :points="svgPolylinePoints"
-            fill="none"
-            stroke="#1989fa"
-            stroke-width="8"
-            stroke-opacity="0.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            vector-effect="non-scaling-stroke" 
-          />
+          <polyline v-if="currentLinePoints.length > 0" :points="svgPolylinePoints" fill="none" stroke="#1989fa"
+            stroke-width="8" stroke-opacity="0.6" stroke-linecap="round" stroke-linejoin="round"
+            vector-effect="non-scaling-stroke" />
         </svg>
 
-        <div 
-          v-if="userLocation"
-          class="user-marker"
-          :style="getMarkerStyle(userLocation.lat, userLocation.lng)"
-        >
+        <div v-if="userLocation" class="user-marker" :style="getMarkerStyle(userLocation.lat, userLocation.lng)">
           <div class="user-dot-pulse"></div>
           <div class="user-dot"></div>
         </div>
 
-        <div 
-          v-for="(station, index) in currentStations" 
-          :key="'map_st_' + index"
-          class="station-marker"
-          :style="getMarkerStyle(station.stationLat, station.stationLong)"
-        >
-          <div 
-            class="station-dot"
-            :class="{ 'is-selected': selectedStationIndex === index }"
-          ></div>
+        <!-- 生成站点 -->
+        <div v-for="(station, index) in currentStations" :key="'map_st_' + index" class="station-marker"
+          :style="getMarkerStyle(station.stationLat, station.stationLong)">
+          <div class="station-dot" :class="{ 'is-selected': selectedStationIndex === index }"></div>
         </div>
-
-        <div 
-          v-for="bus in busList" 
-          :key="'map_bus_' + bus.vehiNum"
-          class="bus-marker"
-          :style="getMarkerStyle(bus.py, bus.px, bus.direction)"
-          @click.stop="focusBus(bus)"
-        >
+        <!-- 生成车辆图标 -->
+        <div v-for="bus in busList" :key="'map_bus_' + bus.vehiNum" class="bus-marker"
+          :style="getMarkerStyle(bus.py, bus.px, bus.direction)" @click.stop="focusBus(bus)">
           <div class="bus-rotate-container" :style="{ transform: `rotate(${bus.direction}deg)` }">
-            <div 
-              class="school-bus-icon" 
-              :class="isSmallCar(bus.vehicleType) ? 'bus-white' : 'bus-red'"
-            >
+            <div class="school-bus-icon" :class="isSmallCar(bus.vehicleType) ? 'bus-red' : 'bus-white'">
               <div class="bus-windshield"></div>
               <div class="bus-roof"></div>
               <div class="bus-lights-l"></div>
@@ -80,7 +120,7 @@
           <div class="bus-label">{{ bus.vehiNum.slice(-3) }}</div>
         </div>
       </div>
-      
+      <!-- 地图控件:缩放以及重置地图,重新定位 -->
       <div class="map-controls" :class="{ 'shifted': isPanelOpen }">
         <div class="control-btn" @click.stop="zoomIn"><van-icon name="plus" /></div>
         <div class="control-btn" @click.stop="zoomOut"><van-icon name="minus" /></div>
@@ -91,122 +131,8 @@
       </div>
     </div>
 
-    <div 
-      class="bottom-panel" 
-      :class="{ 'is-collapsed': !isPanelOpen }"
-    >
-      <div 
-        class="panel-handle-bar" 
-        @click="togglePanel"
-        @touchstart.stop="onPanelTouchStart"
-        @touchmove.stop="onPanelTouchMove"
-        @touchend.stop="onPanelTouchEnd"
-      >
-        <div class="handle"></div>
-      </div>
 
-      <div class="tabs-container">
-        <van-tabs 
-          v-model:active="activeTabId" 
-          shrink
-          color="#1989fa" 
-          title-active-color="#1989fa"
-          title-inactive-color="#999"
-          line-width="20px"
-          line-height="3px"
-          @click-tab="onTabChange"
-          background="#ffffff"
-          class="custom-tabs"
-        >
-          <van-tab 
-            v-for="line in busLineData" 
-            :key="line.lid" 
-            :title="line.lineAlias" 
-            :name="line.lid"
-          />
-        </van-tabs>
-      </div>
 
-      <div class="panel-content">
-        <div class="status-header">
-           <div class="header-left">
-             <span class="line-eta-text">{{ overallNearestETA }}</span>
-             <div class="sub-info">
-                <span class="line-direction-tag">
-                  往 {{ getDestinationName() }}
-                </span>
-                <span class="time-tip" v-if="lastUpdateTime">
-                  {{ lastUpdateTime }} 更新
-                </span>
-             </div>
-           </div>
-           
-           <div class="header-right">
-             <div class="nearest-bus-info" v-if="nearestBusToFocus">
-                <span class="nb-label">最近车辆</span>
-                <span class="nb-plate">{{ nearestBusToFocus }}</span>
-             </div>
-             <div class="nearest-bus-info empty" v-else>
-                <span class="nb-label">暂无车辆</span>
-             </div>
-           </div>
-        </div>
-
-        <div 
-          class="linear-route-scroll" 
-          v-if="currentStations.length > 0"
-          ref="routeScrollRef"
-          @pointerdown="onListPointerDown"
-          @pointermove="onListPointerMove"
-          @pointerup="onListPointerUp"
-          @pointerleave="onListPointerUp"
-        >
-          <div class="linear-route-track">
-            <div class="route-line-bg"></div>
-            <div 
-              v-for="(station, index) in currentStations" 
-              :key="'node_' + index" 
-              class="route-node"
-              :class="{ 
-                'is-nearest': nearestStationToUser?.index === index, // 离人最近的站
-                'is-selected': selectedStationIndex === index        // 选中的站
-              }"
-              :id="'station-node-' + index"
-              @click="selectStation(index)"
-            >
-              <div class="node-dot-wrapper">
-                <div class="node-dot"></div>
-                <div class="node-dot-ring" v-if="selectedStationIndex === index"></div>
-                <div class="user-location-badge" v-if="nearestStationToUser?.index === index && selectedStationIndex === null">
-                  <van-icon name="location" />
-                </div>
-              </div>
-              
-              <div class="node-name">
-                {{ station.stationAlias }}
-              </div>
-
-              <div class="node-buses-container-bottom">
-                <div 
-                  v-for="bus in getBusesNearStation(index)" 
-                  :key="bus.vehiNum"
-                  class="bus-on-route-icon"
-                  @click.stop="focusBus(bus)"
-                >
-                  <div class="css-side-bus-mini" :class="isSmallCar(bus.vehicleType) ? 'side-white' : 'side-red'">
-                    <div class="wheel wheel-f"></div>
-                    <div class="wheel wheel-b"></div>
-                  </div>
-                  <div class="bus-plate-tiny">{{ bus.vehiNum.slice(-3) }}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <van-empty v-else description="暂无线路数据" class="empty-state" />
-      </div>
-    </div>
   </div>
 </template>
 
@@ -214,6 +140,7 @@
 import { ref, onMounted, onUnmounted, computed, reactive, nextTick, watch } from 'vue';
 import { showToast } from 'vant';
 import type { bustype, linetype } from './datatype';
+import { get } from 'vant/lib/utils';
 
 // [配置] 地图的经纬度边界 (左上角和右下角)，用于将GPS映射到图片百分比
 const MAP_BOUNDS = { minLon: 120.0665, maxLon: 120.0961, minLat: 30.2910, maxLat: 30.3148 };
@@ -228,6 +155,7 @@ const isPanelOpen = ref(true);           // 底部面板是否展开
 const userLocation = ref<{ lat: number, lng: number } | null>(null); // 用户GPS坐标
 const cachedNearestStation = ref<{ station: any, index: number, distance: number } | null>(null); // 缓存的最近站点
 const selectedStationIndex = ref<number | null>(null); // 用户手动点击选中的站点索引
+const bottomPanelRef = ref<HTMLElement | null>(null);
 
 // [引用] DOM元素引用，用于操作滚动条
 const routeScrollRef = ref<HTMLElement | null>(null);
@@ -251,6 +179,8 @@ let naturalWidth = 0; let naturalHeight = 0; // 图片原始尺寸
 let containerWidth = 0; let containerHeight = 0; // 容器显示尺寸
 let minScale = 1; // 最小缩放比例（填满屏幕）
 
+const bottomPanelHeight = ref(0);
+
 // 底部面板触摸状态
 const panelTouch = reactive({ startY: 0, moving: false });
 
@@ -259,7 +189,7 @@ const wrapperStyle = computed(() => ({
   // 使用 translate 移动，scale 缩放。calc(-50%) 是为了让原点在中心
   transform: `translate(calc(-50% + ${mapState.x}px), calc(-50% + ${mapState.y}px)) scale(${mapState.scale})`,
   // 如果处于动画状态（如回弹、重置），则添加 transition
-  transition: isAnimating.value ? 'transform 0.4s cubic-bezier(0.25, 1, 0.5, 1)' : 'none' 
+  transition: isAnimating.value ? 'transform 0.4s cubic-bezier(0.25, 1, 0.5, 1)' : 'none'
 }));
 
 // [地图方法] 初始化：图片加载完成后调用
@@ -288,17 +218,41 @@ const updateContainerSize = () => {
 // 监听窗口 resize 事件
 window.addEventListener('resize', () => {
   updateContainerSize();
+  updateBottomPanelHeight();
+
   if (naturalWidth > 0) {
-      // 重新计算最小缩放比，防止窗口变大后出现白边
-     const scaleX = containerWidth / naturalWidth;
-     const scaleY = containerHeight / naturalHeight;
-     minScale = Math.max(scaleX, scaleY);
-     if (mapState.scale < minScale) {
-       mapState.scale = minScale;
-       checkBoundsAndSnap();
-     }
+    // 重新计算最小缩放比，防止窗口变大后出现白边
+    const scaleX = containerWidth / naturalWidth;
+    const scaleY = containerHeight / naturalHeight;
+    minScale = Math.max(scaleX, scaleY);
+    if (mapState.scale < minScale) {
+      mapState.scale = minScale;
+      checkBoundsAndSnap();
+    }
   }
 });
+
+
+
+
+// 更新底部面板高度
+const updateBottomPanelHeight = async () => {
+  // 等待 DOM 更新（特别是涉及到 v-if 或 class 切换导致的动画）
+  await nextTick();
+
+  if (bottomPanelRef.value) {
+    // 使用 offsetHeight 获取当前元素在屏幕上的实际高度
+    bottomPanelHeight.value = bottomPanelRef.value.offsetHeight;
+  }
+};
+const getMapContainerHeight = computed(() => ({
+  // 注意这里加了 .value
+  height: `calc(100% - ${bottomPanelHeight.value}px + 25px)`
+}));
+
+
+
+
 
 // [地图方法] 计算拖拽边界限制
 const getLimits = () => {
@@ -307,10 +261,10 @@ const getLimits = () => {
   // 计算允许滑动的最大距离
   const limitX = Math.max(0, (currentW - containerWidth) / 2);
   const limitY = Math.max(0, (currentH - containerHeight) / 2);
-  const OVERSCROLL = 300; // 允许超出边界的弹性距离
-  return { 
-    limitX: limitX + OVERSCROLL, 
-    limitY: limitY + OVERSCROLL 
+  const OVERSCROLL = 0; // 允许超出边界的弹性距离
+  return {
+    limitX: limitX + OVERSCROLL,
+    limitY: limitY + OVERSCROLL
   };
 };
 
@@ -336,14 +290,14 @@ const onPointerMove = (e: PointerEvent) => {
   const deltaY = e.clientY - dragStart.y;
   let newX = mapStart.x + deltaX;
   let newY = mapStart.y + deltaY;
-  
-  // 阻尼效果：如果拖拽超出了边界，移动速度变慢 (Math.pow 0.7)
+
+  // 阻尼效果：如果拖拽超出了边界，移动速度变慢 阻尼因子 0.25
   const { limitX, limitY } = getLimits();
-  if (newX > limitX) newX = limitX + Math.pow(newX - limitX, 0.7);
-  else if (newX < -limitX) newX = -limitX - Math.pow(-limitX - newX, 0.7);
-  if (newY > limitY) newY = limitY + Math.pow(newY - limitY, 0.7);
-  else if (newY < -limitY) newY = -limitY - Math.pow(-limitY - newY, 0.7);
-  
+  if (newX > limitX) newX = limitX + 0.25 * (newX - limitX);
+  else if (newX < -limitX) newX = -limitX - 0.25 * (-limitX - newX);
+  if (newY > limitY) newY = limitY + 0.25 * (newY - limitY);
+  else if (newY < -limitY) newY = -limitY - 0.25 * (-limitY - newY);
+
   mapState.x = newX;
   mapState.y = newY;
 };
@@ -353,7 +307,7 @@ const onPointerUp = (e: PointerEvent) => {
   isDragging.value = false;
   (e.target as HTMLElement).releasePointerCapture(e.pointerId);
   checkBoundsAndSnap(); // 松开后，如果超出了边界，弹回去
-  
+
   // 判断是点击还是拖拽：如果移动距离小于5px，视为点击
   const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
   if (dist < 5) onMapClick();
@@ -363,7 +317,8 @@ const onMapClick = () => {
   // 点击地图空白处，收起面板并取消选中站点
   if (isPanelOpen.value) {
     isPanelOpen.value = false;
-    selectedStationIndex.value = null; 
+    selectedStationIndex.value = null;
+    updateBottomPanelHeight();
   }
 };
 
@@ -375,7 +330,7 @@ const checkBoundsAndSnap = () => {
   // 注意：这里的代码逻辑其实利用了 getLimits 的 OVERSCROLL 进行阻尼，
   // 但回弹时应该回到真正的边界（limitX - OVERSCROLL）。
   // 原代码逻辑这里有些简化，直接判断 mapState 是否超过了 limitX (含OVERSCROLL中的一部分逻辑，这里不细究，理解为“回正”即可)
-  
+
   // 修正：上面的 getLimits 包含了 OVERSCROLL。
   // 真正的物理边界应该是 (currentW - containerWidth) / 2。
   // 下面的逻辑其实是把地图限制在“不留白边”的范围内。
@@ -389,10 +344,10 @@ const checkBoundsAndSnap = () => {
   let needsSnap = false;
 
   // 如果当前位置超出了真正的边界，需要弹回去
-  if (mapState.x > trueLimitX) { targetX = trueLimitX; needsSnap = true; } 
+  if (mapState.x > trueLimitX) { targetX = trueLimitX; needsSnap = true; }
   else if (mapState.x < -trueLimitX) { targetX = -trueLimitX; needsSnap = true; }
-  
-  if (mapState.y > trueLimitY) { targetY = trueLimitY; needsSnap = true; } 
+
+  if (mapState.y > trueLimitY) { targetY = trueLimitY; needsSnap = true; }
   else if (mapState.y < -trueLimitY) { targetY = -trueLimitY; needsSnap = true; }
 
   if (needsSnap) {
@@ -426,7 +381,6 @@ const resetMap = () => {
 };
 
 // --- [核心逻辑 2] GPS与定位 ---
-
 const getUserLocation = () => {
   if (!navigator.geolocation) {
     showToast('浏览器不支持定位');
@@ -465,7 +419,7 @@ const jumpToCoords = (lat: number, lng: number) => {
 
   const currentW = naturalWidth * mapState.scale;
   const currentH = naturalHeight * mapState.scale;
-  
+
   // 计算目标位移：目标点百分比 转换成 像素偏移量
   // (50 - percentX) 的意思是：把该点移动到中心(50%)所需的位移
   const targetX = ((50 - percentX) / 100) * currentW;
@@ -474,7 +428,7 @@ const jumpToCoords = (lat: number, lng: number) => {
   isAnimating.value = true;
   mapState.x = targetX;
   mapState.y = targetY;
-  
+
   nextTick(() => { checkBoundsAndSnap(); });
 };
 
@@ -494,14 +448,17 @@ const onPanelTouchEnd = (e: TouchEvent) => {
   // 向下滑动超过50px则关闭，向上滑动则打开
   if (distance > 50 && isPanelOpen.value) isPanelOpen.value = false;
   else if (distance < -50 && !isPanelOpen.value) isPanelOpen.value = true;
+  updateBottomPanelHeight();
 };
-const togglePanel = () => { isPanelOpen.value = !isPanelOpen.value; };
-
+const togglePanel = () => {
+  isPanelOpen.value = !isPanelOpen.value;
+  updateBottomPanelHeight();
+};
 // [核心算法] 经纬度转百分比坐标
 // 原理：(当前经度 - 最小经度) / 总经度差 = 百分比
 const geoToPercent = (lat: number, lon: number) => {
   const x = ((lon - MAP_BOUNDS.minLon) / (MAP_BOUNDS.maxLon - MAP_BOUNDS.minLon)) * 100;
-  const y = ((MAP_BOUNDS.maxLat - lat) / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) * 100; 
+  const y = ((MAP_BOUNDS.maxLat - lat) / (MAP_BOUNDS.maxLat - MAP_BOUNDS.minLat)) * 100;
   return { x, y };
 };
 
@@ -521,7 +478,7 @@ const currentLinePoints = computed(() => currentPoints.value);
 // 将线路点转换为 SVG polyline 需要的 "x,y x,y" 字符串格式
 const svgPolylinePoints = computed(() => {
   return currentLinePoints.value.map(p => {
-    const { x, y } = geoToPercent(p.py, p.px); 
+    const { x, y } = geoToPercent(p.py, p.px);
     // SVG viewBox是1000x1000，所以百分比(0-100)要乘以10
     return `${x * 10},${y * 10}`;
   }).join(' ');
@@ -615,12 +572,12 @@ const recalculateNearestStation = () => {
   let nearestStation = null;
   let nearestIndex = -1;
   stations.forEach((st, index) => {
-    const d = Math.pow(st.stationLong - userLocation.value!.lng, 2) + 
-              Math.pow(st.stationLat - userLocation.value!.lat, 2);
+    const d = Math.pow(st.stationLong - userLocation.value!.lng, 2) +
+      Math.pow(st.stationLat - userLocation.value!.lat, 2);
     if (d < minDist) { minDist = d; nearestStation = st; nearestIndex = index; }
   });
   cachedNearestStation.value = { station: nearestStation, index: nearestIndex, distance: minDist };
-  
+
   // [UX优化] 自动滚动底部列表，把最近的站居中
   nextTick(() => { autoScrollToStation(nearestIndex); });
 };
@@ -638,7 +595,7 @@ const selectStation = (index: number) => {
   selectedStationIndex.value = index;
   const st = currentStations.value[index];
   if (st) jumpToCoords(st.stationLat, st.stationLong); // 地图跳转
-  
+
   // 底部列表也滚动居中
   autoScrollToStation(index);
 };
@@ -646,14 +603,14 @@ const selectStation = (index: number) => {
 // [DOM操作] 自动横向滚动列表到指定站点
 const autoScrollToStation = (index: number) => {
   if (!routeScrollRef.value) return;
-  
+
   // 找到对应的 DOM 元素 (依靠id)
   const targetEl = document.getElementById('station-node-' + index);
   if (targetEl) {
     // 浏览器原生API，behavior: 'smooth' 实现平滑滚动
-    targetEl.scrollIntoView({ 
-      behavior: 'smooth', 
-      block: 'nearest', 
+    targetEl.scrollIntoView({
+      behavior: 'smooth',
+      block: 'nearest',
       inline: 'center'  // 核心：让该元素在横向视口中居中
     });
   }
@@ -685,49 +642,49 @@ const onListPointerUp = (e: PointerEvent) => {
 
 // 生成顶部的状态文案（如：距xx站约5分钟）
 const overallNearestETA = computed(() => {
-    if (busList.value.length === 0 || currentStations.value.length === 0) return '当前暂无车辆运行';
+  if (busList.value.length === 0 || currentStations.value.length === 0) return '当前暂无车辆运行';
 
-    // 1. 如果用户手动选中了站点，显示该站信息
-    if (selectedStationIndex.value !== null) {
-      const etaData = getStationETA(selectedStationIndex.value);
-      const stationName = currentStations.value[selectedStationIndex.value].stationAlias;
-      if (etaData) {
-        if (etaData.isArriving) return `车辆即将到达 ${stationName}`;
-        return `距 ${stationName} 约 ${etaData.text.replace('分', '')} 分钟`;
-      } else {
-        return `前往 ${stationName} 暂无班次`;
+  // 1. 如果用户手动选中了站点，显示该站信息
+  if (selectedStationIndex.value !== null) {
+    const etaData = getStationETA(selectedStationIndex.value);
+    const stationName = currentStations.value[selectedStationIndex.value].stationAlias;
+    if (etaData) {
+      if (etaData.isArriving) return `车辆即将到达 ${stationName}`;
+      return `距 ${stationName} 约 ${etaData.text.replace('分', '')} 分钟`;
+    } else {
+      return `前往 ${stationName} 暂无班次`;
+    }
+  }
+
+  // 2. 否则，显示离用户最近的站点信息
+  if (nearestStationToUser.value) {
+    const userStationIndex = nearestStationToUser.value.index;
+    const etaData = getStationETA(userStationIndex);
+    if (etaData) {
+      const stationName = nearestStationToUser.value.station.stationAlias;
+      if (etaData.isArriving) return `车辆即将到达 ${stationName}`;
+      return `距 ${stationName} 约 ${etaData.text.replace('分', '')} 分钟`;
+    }
+  }
+
+  // 3. 兜底逻辑：遍历所有站，找一个最近的显示
+  let minMinutes = Infinity;
+  let found = false;
+  currentStations.value.forEach((_, index) => {
+    const etaData = getStationETA(index);
+    if (etaData) {
+      found = true;
+      if (etaData.isArriving) { minMinutes = 0; } else {
+        const matches = etaData.text.match(/(\d+)/);
+        if (matches) { const mins = parseInt(matches[0], 10); if (mins < minMinutes) minMinutes = mins; }
       }
     }
+  });
 
-    // 2. 否则，显示离用户最近的站点信息
-    if (nearestStationToUser.value) {
-      const userStationIndex = nearestStationToUser.value.index;
-      const etaData = getStationETA(userStationIndex);
-      if (etaData) {
-        const stationName = nearestStationToUser.value.station.stationAlias;
-        if (etaData.isArriving) return `车辆即将到达 ${stationName}`;
-        return `距 ${stationName} 约 ${etaData.text.replace('分', '')} 分钟`;
-      }
-    }
-
-    // 3. 兜底逻辑：遍历所有站，找一个最近的显示
-    let minMinutes = Infinity;
-    let found = false;
-    currentStations.value.forEach((_, index) => {
-        const etaData = getStationETA(index);
-        if (etaData) {
-            found = true;
-            if (etaData.isArriving) { minMinutes = 0; } else {
-                const matches = etaData.text.match(/(\d+)/);
-                if (matches) { const mins = parseInt(matches[0], 10); if (mins < minMinutes) minMinutes = mins; }
-            }
-        }
-    });
-
-    if (!found) return '等待发车';
-    if (minMinutes === 0) return '有车辆即将到站';
-    if (minMinutes === Infinity) return '车辆运行中';
-    return `最近车辆约 ${minMinutes} 分钟到达`;
+  if (!found) return '等待发车';
+  if (minMinutes === 0) return '有车辆即将到站';
+  if (minMinutes === Infinity) return '车辆运行中';
+  return `最近车辆约 ${minMinutes} 分钟到达`;
 })
 
 const getDestinationName = () => {
@@ -743,11 +700,11 @@ const fetchLinedata = async () => {
     const res = await fetch(API_URLS.LINE_DATA + '?t=' + Date.now()).then(r => r.json());
     busLineData.value = res.data || [];
     if (busLineData.value.length && activeTabId.value === "L820") {
-       activeTabId.value = busLineData.value[0].lid;
+      activeTabId.value = busLineData.value[0].lid;
     }
     await nextTick();
     recalculateNearestStation();
-  } catch(e) {}
+  } catch (e) { }
 };
 
 // [API] 获取车辆位置数据
@@ -757,7 +714,7 @@ const fetchBusData = async () => {
     const res = await fetch(`${API_URLS.BUS_DATA_PREFIX}${activeTabId.value}.json?t=` + Date.now()).then(r => r.json());
     busList.value = res.data || [];
     lastUpdateTime.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-  } catch(e) { busList.value = []; }
+  } catch (e) { busList.value = []; }
 };
 
 const onTabChange = ({ name }: any) => {
@@ -771,7 +728,17 @@ const onTabChange = ({ name }: any) => {
 onMounted(() => {
   fetchLinedata();
   fetchBusData();
-  getUserLocation(); 
+  getUserLocation();
+  updateBottomPanelHeight();
+
+  // 核心：使用 ResizeObserver 自动监听面板高度变化
+  // 这样无论你是展开面板、内容变多、还是切换 Tab，高度都会自动同步
+  if (bottomPanelRef.value) {
+    const observer = new ResizeObserver(() => {
+      updateBottomPanelHeight();
+    });
+    observer.observe(bottomPanelRef.value);
+  }
   timer = setInterval(fetchBusData, 3000); // 每3秒刷新一次车辆位置
 });
 onUnmounted(() => { if (timer) clearInterval(timer); });
@@ -784,6 +751,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
   transform: scale(1.05);
   transition: all 0.3s ease;
 }
+
 :deep(.van-tabs__line) {
   background: linear-gradient(to right, #1989fa, #72c6ff) !important;
   bottom: 6px !important;
