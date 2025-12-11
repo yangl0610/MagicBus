@@ -3,11 +3,11 @@
   "data": [
     {
       "vehiNum": "浙A37806D",
-      "px": 120.075059,
-      "py": 30.305384,
-      "speedTime": "2025-12-11T06:19:41.000+00:00",
+      "px": 120.0904,
+      "py": 30.298033,
+      "speedTime": "2025-12-11T07:27:56.000+00:00",
       "vehicleType": "3",
-      "direction": 65
+      "direction": 185
     }
   ],
   "message": null
