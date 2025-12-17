@@ -81,14 +81,12 @@
       </div>
     </div>
     <!-- 地图容器 -->
-    <div class="map-container" :class="{ 'is-collapsed': !isPanelOpen }" ref="mapContainerRef"
-      :style="getMapContainerHeight" @pointerdown="onPointerDown" @pointermove="onPointerMove" @pointerup="onPointerUp"
-      @pointerleave="onPointerUp" @wheel.prevent="onWheel">
+    <div class="map-container" ref="mapContainerRef" :style="getMapContainerHeight" @pointerdown="onPointerDown"
+      @pointermove="onPointerMove" @pointerup="onPointerUp" @pointerleave="onPointerUp" @wheel.prevent="onWheel">
 
       <!-- 背景图层 -->
-      <div class="map-wrapper" :class="{ 'is-animating': isAnimating, 'map-shifted': isPanelOpen }"
-        :style="wrapperStyle">
-        <img ref="mapImgRef" src="/zjgMap.png" class="map-image" alt="Map" draggable="false" @load="initMap" />
+      <div class="map-wrapper" :class="{ 'is-animating': isAnimating }" :style="wrapperStyle">
+        <img ref="mapImgRef" src="/zjgMap.png" class="map-image" alt="Map" draggable="false" />
 
         <svg class="map-overlay" viewBox="0 0 1000 1000" preserveAspectRatio="none">
           <polyline v-if="currentLinePoints.length > 0" :points="svgPolylinePoints" fill="none" stroke="#1989fa"
@@ -194,11 +192,11 @@ const wrapperStyle = computed(() => ({
 
 // [地图方法] 初始化：图片加载完成后调用
 const initMap = () => {
-  if (!mapImgRef.value || !mapContainerRef.value) return;
   // 获取图片和容器尺寸
   naturalWidth = mapImgRef.value.naturalWidth;
   naturalHeight = mapImgRef.value.naturalHeight;
-  updateContainerSize();
+  containerWidth = window.innerWidth;
+  containerHeight = window.innerHeight - 280.98 + 25; // 初始时减去底部面板高度
   // 计算最小缩放比，保证图片始终覆盖容器
   const scaleX = containerWidth / naturalWidth;
   const scaleY = containerHeight / naturalHeight;
@@ -217,18 +215,12 @@ const updateContainerSize = () => {
 
 // 监听窗口 resize 事件
 window.addEventListener('resize', () => {
-  updateContainerSize();
   updateBottomPanelHeight();
+  updateContainerSize();
 
   if (naturalWidth > 0) {
     // 重新计算最小缩放比，防止窗口变大后出现白边
-    const scaleX = containerWidth / naturalWidth;
-    const scaleY = containerHeight / naturalHeight;
-    minScale = Math.max(scaleX, scaleY);
-    if (mapState.scale < minScale) {
-      mapState.scale = minScale;
-      checkBoundsAndSnap();
-    }
+    updateBoundary();
   }
 });
 
@@ -246,7 +238,6 @@ const updateBottomPanelHeight = async () => {
   }
 };
 const getMapContainerHeight = computed(() => ({
-  // 注意这里加了 .value
   height: `calc(100% - ${bottomPanelHeight.value}px + 25px)`
 }));
 
@@ -322,6 +313,15 @@ const onMapClick = () => {
   }
 };
 
+const updateBoundary = () => {
+  const scaleX = containerWidth / naturalWidth;
+  const scaleY = containerHeight / naturalHeight;
+  minScale = Math.max(scaleX, scaleY);
+  if (mapState.scale < minScale) {
+    mapState.scale = minScale;
+    checkBoundsAndSnap();
+  }
+}
 // [核心算法] 检查边界并回弹（Snap效果）
 const checkBoundsAndSnap = () => {
   const { limitX, limitY } = getLimits();
@@ -446,13 +446,15 @@ const onPanelTouchEnd = (e: TouchEvent) => {
   const endY = e.changedTouches[0].clientY;
   const distance = endY - panelTouch.startY;
   // 向下滑动超过50px则关闭，向上滑动则打开
-  if (distance > 50 && isPanelOpen.value) isPanelOpen.value = false;
-  else if (distance < -50 && !isPanelOpen.value) isPanelOpen.value = true;
-  updateBottomPanelHeight();
+  if (distance > 50 && isPanelOpen.value) changePanelState();
+  else if (distance < -50 && !isPanelOpen.value) changePanelState();
+
+};
+const changePanelState = () => {
+  isPanelOpen.value = !isPanelOpen.value;
 };
 const togglePanel = () => {
-  isPanelOpen.value = !isPanelOpen.value;
-  updateBottomPanelHeight();
+  changePanelState();
 };
 // [核心算法] 经纬度转百分比坐标
 // 原理：(当前经度 - 最小经度) / 总经度差 = 百分比
@@ -730,14 +732,21 @@ onMounted(() => {
   fetchBusData();
   getUserLocation();
   updateBottomPanelHeight();
-
-  // 核心：使用 ResizeObserver 自动监听面板高度变化
+  initMap();
+  // 核心：使用 ResizeObserver 自动监听 面板高度 变化
   // 这样无论你是展开面板、内容变多、还是切换 Tab，高度都会自动同步
   if (bottomPanelRef.value) {
     const observer = new ResizeObserver(() => {
       updateBottomPanelHeight();
     });
     observer.observe(bottomPanelRef.value);
+  }
+  if (mapContainerRef.value) {
+    const MapObserver = new ResizeObserver(() => {
+      updateContainerSize();
+      updateBoundary();
+    });
+    MapObserver.observe(mapContainerRef.value);
   }
   timer = setInterval(fetchBusData, 3000); // 每3秒刷新一次车辆位置
 });
