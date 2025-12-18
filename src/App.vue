@@ -114,7 +114,8 @@
               <div class="bus-lights-l"></div>
               <div class="bus-lights-r"></div>
             </div>
-          </div>
+          </div>  
+          <!-- 显示车牌号后三位 -->
           <div class="bus-label">{{ bus.vehiNum.slice(-3) }}</div>
         </div>
       </div>
@@ -141,16 +142,17 @@ import type { bustype, linetype } from './datatype';
 import { get } from 'vant/lib/utils';
 
 // [配置] 地图的经纬度边界 (左上角和右下角)，用于将GPS映射到图片百分比
-const MAP_BOUNDS = { minLon: 120.0665, maxLon: 120.0961, minLat: 30.2910, maxLat: 30.3148 };
+const MAP_BOUNDS = { minLon: 120.064, maxLon: 120.097, minLat:30.28765 , maxLat:30.315849  };
 const activeTabId = ref<any>("L820"); // 当前选中的线路ID
 const API_URLS = { LINE_DATA: '/bus_line_data.json', BUS_DATA_PREFIX: '/' };
 
+const defaultUserLocation = { lat: 30.2975, lng: 120.0800 }; // 出生点:马院
 // [状态] 核心数据 Refs
 const busLineData = ref<linetype[]>([]); // 线路列表
 const busList = ref<bustype[]>([]);      // 车辆实时数据
 const lastUpdateTime = ref<string>('');  // 上次刷新时间
 const isPanelOpen = ref(true);           // 底部面板是否展开
-const userLocation = ref<{ lat: number, lng: number } | null>(null); // 用户GPS坐标
+const userLocation = ref<{ lat: number, lng: number }>(defaultUserLocation); // 用户GPS坐标
 const cachedNearestStation = ref<{ station: any, index: number, distance: number } | null>(null); // 缓存的最近站点
 const selectedStationIndex = ref<number | null>(null); // 用户手动点击选中的站点索引
 const bottomPanelRef = ref<HTMLElement | null>(null);
@@ -397,13 +399,13 @@ const getUserLocation = () => {
       if (cachedNearestStation.value) {
         selectedStationIndex.value = cachedNearestStation.value.index;
       }
-      jumpToUserLocation(); // 视野跳转到人所在的位置
     },
     (error) => {
       console.error(error);
       showToast('定位失败，请检查权限');
     }
   );
+  jumpToUserLocation(); // 视野跳转到人所在的位置
 };
 
 const jumpToUserLocation = () => {
