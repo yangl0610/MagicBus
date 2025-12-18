@@ -86,7 +86,7 @@
 
       <!-- 背景图层 -->
       <div class="map-wrapper" :class="{ 'is-animating': isAnimating }" :style="wrapperStyle">
-        <img ref="mapImgRef" src="/zjgMap.png" class="map-image" alt="Map" draggable="false" />
+        <img ref="mapImgRef" src="/zjgMap.png" class="map-image" alt="Map" draggable="false" @load="initMap" />
 
         <svg class="map-overlay" viewBox="0 0 1000 1000" preserveAspectRatio="none">
           <polyline v-if="currentLinePoints.length > 0" :points="svgPolylinePoints" fill="none" stroke="#1989fa"
@@ -114,7 +114,7 @@
               <div class="bus-lights-l"></div>
               <div class="bus-lights-r"></div>
             </div>
-          </div>  
+          </div>
           <!-- 显示车牌号后三位 -->
           <div class="bus-label">{{ bus.vehiNum.slice(-3) }}</div>
         </div>
@@ -142,7 +142,7 @@ import type { bustype, linetype } from './datatype';
 import { get } from 'vant/lib/utils';
 
 // [配置] 地图的经纬度边界 (左上角和右下角)，用于将GPS映射到图片百分比
-const MAP_BOUNDS = { minLon: 120.064, maxLon: 120.097, minLat:30.28765 , maxLat:30.315849  };
+const MAP_BOUNDS = { minLon: 120.064, maxLon: 120.097, minLat: 30.28765, maxLat: 30.315849 };
 const activeTabId = ref<any>("L820"); // 当前选中的线路ID
 const API_URLS = { LINE_DATA: '/bus_line_data.json', BUS_DATA_PREFIX: '/' };
 
@@ -734,7 +734,9 @@ onMounted(() => {
   fetchBusData();
   getUserLocation();
   updateBottomPanelHeight();
-  initMap();
+  if (mapImgRef.value && mapImgRef.value.complete) {
+    initMap();
+  }
   // 核心：使用 ResizeObserver 自动监听 面板高度 变化
   // 这样无论你是展开面板、内容变多、还是切换 Tab，高度都会自动同步
   if (bottomPanelRef.value) {
