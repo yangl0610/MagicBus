@@ -171,12 +171,38 @@ const busList = ref<bustype[]>([]);      // 车辆实时数据
 const lastUpdateTime = ref<string>('');  // 上次刷新时间
 const isPanelOpen = ref(true);           // 底部面板是否展开
 const userLocation = ref<{ lat: number, lng: number }>(defaultUserLocation); // 用户GPS坐标
-const userHeading = ref<number>(0); // 用户朝向（度）
-// 设备朝向处理函数（module 作用域，便于注册/注销）
+// 朝向相关：raw->offset->平滑 -> 展示
+const userHeading = ref<number>(0); // 最终用于模板显示的朝向（度）
+const initialHeadingOffset = ref<number>(0); // 不同设备可能需要的初始偏移（度），可根据UA设定
+const _smoothedHeading = { value: 0 }; // 内部平滑缓存（避免频繁触发 ref 更改开销）
+const HEADING_SMOOTHING_ALPHA = 0.28; // EMA 平滑系数，0-1，越小越平滑
+
+// 根据 userAgent 做一个简单设备型号->偏移的映射（经验值，可扩展）
+const determineInitialOffsetFromUA = (ua: string) => {
+  const u = ua.toLowerCase();
+  // 常见厂商示例（仅经验性调整）：
+  if (/huawei|honor/.test(u)) return -90;
+  if (/xiaomi|mi |redmi/.test(u)) return -90;
+  if (/oppo|realme|oneplus/.test(u)) return -90;
+  if (/iphone|ipad|ipod/.test(u)) return 0; // iOS 通常 alpha 定义与安卓不同，保守使用0
+  // 默认不偏移
+  return -90;
+};
+
+// 设备朝向处理函数：读取 e.alpha，应用偏移并做 EMA 平滑，写入 userHeading
 const handleDeviceOrientation = (e: DeviceOrientationEvent) => {
-  if (typeof e.alpha === 'number' && !isNaN(e.alpha)) {
-    userHeading.value = (360 - e.alpha - 90) % 360;
-  }
+  if (typeof e.alpha !== 'number' || isNaN(e.alpha)) return;
+  // 原始 alpha 表示设备绕 Z 轴的角度（0-360），不同浏览器参考系差异很大
+  // 把 alpha 转为页面上希望的指向角：先取反（360 - alpha），再加上经验偏移
+  let raw = (360 - e.alpha + 360) % 360; // 规范到 [0,360)
+  raw = (raw + initialHeadingOffset.value + 360) % 360;
+
+  // EMA 平滑（避免抖动）
+  const prev = _smoothedHeading.value || raw;
+  const alpha = HEADING_SMOOTHING_ALPHA;
+  const sm = prev * (1 - alpha) + raw * alpha;
+  _smoothedHeading.value = sm;
+  userHeading.value = Math.round(sm * 100) / 100; // 保留两位小数
 };
 // Debug: whether to show location debug overlay
 const debugLocation = ref(false);
@@ -518,7 +544,7 @@ const wgs84ToGcj02 = (lon: number, lat: number): [number, number] => {
   return [mgLon, mgLat];
 };
 
-const getUserLocation = () => {
+const getUserLocation = async () => {
   // reset debug statuses
   locationDebug.supported = false;
   locationDebug.requestSent = false;
@@ -535,6 +561,23 @@ const getUserLocation = () => {
     locationDebug.failure = true;
     return;
   }
+
+  // 如果需要，在用户手势内请求 DeviceOrientation 权限（iOS 13+）
+  try {
+    const req = (DeviceOrientationEvent as any)?.requestPermission;
+    if (typeof req === 'function') {
+      try {
+        const perm = await req();
+        if (perm === 'granted') {
+          try { window.addEventListener('deviceorientation', handleDeviceOrientation as EventListener, true); } catch (e) { }
+        } else {
+          locationDebug.lastError = 'DeviceOrientation 权限未授予';
+        }
+      } catch (e) {
+        // requestPermission 可能在某些浏览器抛错
+      }
+    }
+  } catch (e) { }
 
   showToast('正在定位...');
   locationDebug.requestSent = true;
@@ -901,6 +944,8 @@ const onTabChange = ({ name }: any) => {
 
 // 生命周期：挂载后启动轮询
 onMounted(() => {
+  // 根据 UA 设定初始偏移（经验值）
+  try { initialHeadingOffset.value = determineInitialOffsetFromUA(navigator.userAgent || ''); } catch (e) { initialHeadingOffset.value = 0; }
   fetchLinedata();
   fetchBusData();
   getUserLocation();
@@ -924,8 +969,12 @@ onMounted(() => {
     MapObserver.observe(mapContainerRef.value);
   }
   timer = setInterval(fetchBusData, 3000); // 每3秒刷新一次车辆位置
-  // 添加设备朝向监听（部分平台可能需要权限，若无权限事件不会触发）
-  try { window.addEventListener('deviceorientation', handleDeviceOrientation as EventListener, true); } catch (err) { }
+  // 只有在非 iOS requestPermission 场景下直接注册监听，iOS 13+ 需要在用户手势内 requestPermission
+  try {
+    if (!(DeviceOrientationEvent as any)?.requestPermission) {
+      window.addEventListener('deviceorientation', handleDeviceOrientation as EventListener, true);
+    }
+  } catch (err) { }
 });
 onUnmounted(() => {
   if (timer) clearInterval(timer);
