@@ -101,8 +101,8 @@
 
         <!-- 生成站点 -->
         <div v-for="(station, index) in currentStations" :key="'map_st_' + index" class="station-marker"
-          :style="getMarkerStyle(station.stationLat, station.stationLong)">
-          <div class="station-dot" :class="{ 'is-selected': selectedStationIndex === index }"></div>
+          :style="getMarkerStyle(station.stationLat, station.stationLong)" >
+          <div class="station-dot" :class="{ 'is-selected': selectedStationIndex === index }" @click.stop="selectStation(index)"></div>
         </div>
         <!-- 生成车辆图标 -->
         <div v-for="bus in busList" :key="'map_bus_' + bus.vehiNum" class="bus-marker"
@@ -362,8 +362,7 @@ const onPointerUp = (e: PointerEvent) => {
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     checkBoundsAndSnap(); // 抬起时进行最终边界回弹
 
-    const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
-    if (dist < 5) onMapClick();
+    const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y)
   } else if (activePointers.size === 1) {
     // 关键：如果从双指变为单指，需要重置单指拖拽的起点，否则画面会闪跳
     const remaining = activePointers.values().next().value;
@@ -375,14 +374,6 @@ const onPointerUp = (e: PointerEvent) => {
   }
 };
 
-const onMapClick = () => {
-  // 点击地图空白处，收起面板并取消选中站点
-  if (isPanelOpen.value) {
-    isPanelOpen.value = false;
-    selectedStationIndex.value = null;
-    updateBottomPanelHeight();
-  }
-};
 
 const updateBoundary = () => {
   const scaleX = containerWidth / naturalWidth;
@@ -651,6 +642,8 @@ const recalculateNearestStation = () => {
   });
   cachedNearestStation.value = { station: nearestStation, index: nearestIndex, distance: minDist };
 
+  if(nearestIndex!=-1)
+  selectStation(nearestIndex)
   // [UX优化] 自动滚动底部列表，把最近的站居中
   nextTick(() => { autoScrollToStation(nearestIndex); });
 };
@@ -663,17 +656,26 @@ watch(activeTabId, async () => {
   await nextTick();
   recalculateNearestStation();
 });
-
 const selectStation = (index: number) => {
+  // 1. 更新选中索引，触发 CSS 高亮
   selectedStationIndex.value = index;
+  
   const st = currentStations.value[index];
-  if (st) jumpToCoords(st.stationLat, st.stationLong); // 地图跳转
+  if (st) {
+    // 2. 地图跳转：将该站点移动到视野中心
+    jumpToCoords(st.stationLat, st.stationLong);
+  }
 
-  // 底部列表也滚动居中
-  autoScrollToStation(index);
+  // 3. 面板连动：确保面板处于展开状态，并滚动到对应位置
+  isPanelOpen.value = true;
+  
+  // 使用 nextTick 确保 DOM 更新（比如面板展开动画）后再执行滚动
+  nextTick(() => {
+    updateBottomPanelHeight(); // 更新容器高度计算
+    autoScrollToStation(index); // 调用你已有的 scrollIntoView 逻辑
+  });
 };
 
-// [DOM操作] 自动横向滚动列表到指定站点
 const autoScrollToStation = (index: number) => {
   if (!routeScrollRef.value) return;
 

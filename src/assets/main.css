@@ -73,17 +73,35 @@ body {
 
 /* === 站点标记 === */
 .station-marker {
-  position: absolute; transform: translate(-50%, -50%);
-  pointer-events: none;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  /* 1. 必须改为 auto，否则子元素 .station-dot 永远无法被点击 */
+  pointer-events: auto; 
+  /* 2. 确保它在 SVG 线条（通常 z-index 较低）之上 */
+  z-index: 20; 
+  /* 3. 增加点击热区（可选）：
+     有时候圆点太小很难点中，给 marker 设置宽高并用 flex 居中可以增大点击面积 */
+  width: 30px; 
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+
 .station-dot {
-  width: 12px; height: 12px;
-  background: #fff; border: 2px solid #666; border-radius: 50%;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  width: 24px;
+  height: 24px;
+  background: #fff;
+  border: 2px solid #666;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   transition: all 0.3s ease;
+  /* 此处的 z-index 是相对于 marker 的，保持即可 */
 }
+
 .station-dot.is-selected {
-  background-color: #1989fa; border-color: #fff;
+  background-color: #1989fa;
+  border-color: #fff;
   transform: scale(1.5);
   box-shadow: 0 0 0 4px rgba(25, 137, 250, 0.3);
 }
