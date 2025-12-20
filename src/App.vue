@@ -84,6 +84,18 @@
     <div class="map-container" ref="mapContainerRef" :style="getMapContainerHeight" @pointerdown="onPointerDown"
       @pointermove="onPointerMove" @pointerup="onPointerUp" @pointerleave="onPointerUp" @wheel.prevent="onWheel">
 
+      <div v-if="debugLocation" class="location-debug-panel" style="position: absolute; right: 12px; top: 12px; background: rgba(0,0,0,0.6); color: #fff; padding: 8px 10px; border-radius: 6px; font-size: 12px; z-index:200; min-width:180px;">
+        <div style="font-weight:600; margin-bottom:6px;">定位调试</div>
+        <div>支持定位: <strong>{{ locationDebug.supported ? '✓' : '✗' }}</strong></div>
+        <div>请求已发送: <strong>{{ locationDebug.requestSent ? '✓' : '✗' }}</strong></div>
+        <div>定位成功: <strong>{{ locationDebug.success ? '✓' : '✗' }}</strong></div>
+        <div>定位失败: <strong>{{ locationDebug.failure ? '✓' : '✗' }}</strong></div>
+        <div>坐标转换: <strong>{{ locationDebug.conversionDone ? '✓' : '✗' }}</strong></div>
+        <div>重算最近站: <strong>{{ locationDebug.recalcDone ? '✓' : '✗' }}</strong></div>
+        <div>已跳转视野: <strong>{{ locationDebug.jumped ? '✓' : '✗' }}</strong></div>
+        <div v-if="locationDebug.lastError" style="margin-top:6px;color:#ffcccc;word-break:break-word;">错误: {{ locationDebug.lastError }}</div>
+      </div>
+
       <!-- 背景图层 -->
       <div class="map-wrapper" :class="{ 'is-animating': isAnimating }" :style="wrapperStyle">
         <img ref="mapImgRef" src="/zjgMap.png" class="map-image" alt="Map" draggable="false" @load="initMap" />
@@ -94,9 +106,12 @@
             vector-effect="non-scaling-stroke" />
         </svg>
 
-        <div v-if="userLocation" class="user-marker" :style="getMarkerStyle(userLocation.lat, userLocation.lng)">
-          <div class="user-dot-pulse"></div>
-          <div class="user-dot"></div>
+        <div v-if="userLocation" class="user-marker" :style="getMarkerStyle(userLocation.lat, userLocation.lng, userHeading)">
+          <div class="user-rotate" :style="{ transform: `rotate(${userHeading}deg)` }">
+            <svg class="user-arrow" viewBox="0 0 24 24" width="36" height="36" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2 L20 20 L12 16 L4 20 Z" fill="#1989fa" stroke="#ffffff" stroke-width="0.6" stroke-linejoin="round" />
+            </svg>
+          </div>
         </div>
 
         <!-- 生成站点 -->
@@ -127,6 +142,9 @@
         <div class="control-btn" @click.stop="getUserLocation" :class="{ 'active': userLocation }">
           <van-icon name="location-o" />
         </div>
+          <div class="control-btn debug-toggle" @click.stop="debugLocation = !debugLocation" :class="{ 'active': debugLocation }" title="Toggle location debug">
+            <van-icon name="info-o" />
+          </div>
       </div>
     </div>
 
@@ -153,6 +171,25 @@ const busList = ref<bustype[]>([]);      // 车辆实时数据
 const lastUpdateTime = ref<string>('');  // 上次刷新时间
 const isPanelOpen = ref(true);           // 底部面板是否展开
 const userLocation = ref<{ lat: number, lng: number }>(defaultUserLocation); // 用户GPS坐标
+const userHeading = ref<number>(0); // 用户朝向（度）
+// 设备朝向处理函数（module 作用域，便于注册/注销）
+const handleDeviceOrientation = (e: DeviceOrientationEvent) => {
+  if (typeof e.alpha === 'number' && !isNaN(e.alpha)) {
+    userHeading.value = (360 - e.alpha - 90) % 360;
+  }
+};
+// Debug: whether to show location debug overlay
+const debugLocation = ref(false);
+const locationDebug = reactive({
+  supported: false,
+  requestSent: false,
+  success: false,
+  failure: false,
+  conversionDone: false,
+  recalcDone: false,
+  jumped: false,
+  lastError: '' as string
+});
 const cachedNearestStation = ref<{ station: any, index: number, distance: number } | null>(null); // 缓存的最近站点
 const selectedStationIndex = ref<number | null>(null); // 用户手动点击选中的站点索引
 const bottomPanelRef = ref<HTMLElement | null>(null);
@@ -482,35 +519,58 @@ const wgs84ToGcj02 = (lon: number, lat: number): [number, number] => {
 };
 
 const getUserLocation = () => {
-  if (!navigator.geolocation) {
+  // reset debug statuses
+  locationDebug.supported = false;
+  locationDebug.requestSent = false;
+  locationDebug.success = false;
+  locationDebug.failure = false;
+  locationDebug.conversionDone = false;
+  locationDebug.recalcDone = false;
+  locationDebug.jumped = false;
+  locationDebug.lastError = '';
+
+  locationDebug.supported = !!navigator.geolocation;
+  if (!locationDebug.supported) {
     showToast('浏览器不支持定位');
+    locationDebug.failure = true;
     return;
   }
+
   showToast('正在定位...');
+  locationDebug.requestSent = true;
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
       // 浏览器通常返回 WGS-84，经常需要转换为 GCJ-02（中国范围）以和后端/底图对齐
       const [convLng, convLat] = wgs84ToGcj02(lng, lat);
+      locationDebug.conversionDone = true;
       userLocation.value = { lat: convLat, lng: convLng };
+      locationDebug.success = true;
       showToast('定位成功');
       recalculateNearestStation(); // 定位成功后，算一下离哪个站最近
+      locationDebug.recalcDone = true;
       if (cachedNearestStation.value) {
         selectedStationIndex.value = cachedNearestStation.value.index;
       }
+      // 跳转到用户位置并记录
+      jumpToUserLocation();
     },
     (error) => {
       console.error(error);
+      locationDebug.failure = true;
+      locationDebug.lastError = error?.message || String(error);
       showToast('定位失败，请检查权限');
-    }
+    },
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
   );
-  jumpToUserLocation(); // 视野跳转到人所在的位置
 };
 
 const jumpToUserLocation = () => {
   if (!userLocation.value) return;
   jumpToCoords(userLocation.value.lat, userLocation.value.lng);
+  // record that a jump happened (for debug overlay)
+  locationDebug.jumped = true;
 };
 
 // [算法] 将经纬度点移动到地图中心
@@ -864,8 +924,13 @@ onMounted(() => {
     MapObserver.observe(mapContainerRef.value);
   }
   timer = setInterval(fetchBusData, 3000); // 每3秒刷新一次车辆位置
+  // 添加设备朝向监听（部分平台可能需要权限，若无权限事件不会触发）
+  try { window.addEventListener('deviceorientation', handleDeviceOrientation as EventListener, true); } catch (err) { }
 });
-onUnmounted(() => { if (timer) clearInterval(timer); });
+onUnmounted(() => {
+  if (timer) clearInterval(timer);
+  try { window.removeEventListener('deviceorientation', handleDeviceOrientation as EventListener, true); } catch (e) { }
+});
 </script>
 
 <style scoped>
@@ -881,5 +946,23 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
   bottom: 6px !important;
   height: 4px !important;
   border-radius: 4px !important;
+}
+
+/* User arrow marker styles */
+.user-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.user-rotate {
+  transform-origin: 50% 60%; /* lower than center so arrow pivot feels natural */
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.user-arrow {
+  filter: drop-shadow(0 1px 4px rgba(0,0,0,0.25));
 }
 </style>
