@@ -443,6 +443,44 @@ const resetMap = () => {
 };
 
 // --- [核心逻辑 2] GPS与定位 ---
+// 坐标系转换：WGS-84 <-> GCJ-02（中国）
+// 这里实现 WGS-84 -> GCJ-02 的转换，用于把浏览器返回的坐标（通常为 WGS-84）
+// 转换为与后端/底图一致的坐标系（若后端/底图使用 GCJ-02）。
+const PI = 3.14159265358979324;
+const a = 6378245.0;
+const ee = 0.00669342162296594323;
+const outOfChina = (lat: number, lon: number) => {
+  return lon < 72.004 || lon > 137.8347 || lat < 0.8293 || lat > 55.8271;
+};
+const transformLat = (x: number, y: number) => {
+  let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+  ret += (20.0 * Math.sin(y * PI) + 40.0 * Math.sin(y / 3.0 * PI)) * 2.0 / 3.0;
+  ret += (160.0 * Math.sin(y / 12.0 * PI) + 320 * Math.sin(y * PI / 30.0)) * 2.0 / 3.0;
+  return ret;
+};
+const transformLon = (x: number, y: number) => {
+  let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+  ret += (20.0 * Math.sin(x * PI) + 40.0 * Math.sin(x / 3.0 * PI)) * 2.0 / 3.0;
+  ret += (150.0 * Math.sin(x / 12.0 * PI) + 300.0 * Math.sin(x / 30.0 * PI)) * 2.0 / 3.0;
+  return ret;
+};
+const wgs84ToGcj02 = (lon: number, lat: number): [number, number] => {
+  if (outOfChina(lat, lon)) return [lon, lat];
+  let dLat = transformLat(lon - 105.0, lat - 35.0);
+  let dLon = transformLon(lon - 105.0, lat - 35.0);
+  const radLat = lat / 180.0 * PI;
+  let magic = Math.sin(radLat);
+  magic = 1 - ee * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180.0) / ((a * (1 - ee)) / (magic * sqrtMagic) * PI);
+  dLon = (dLon * 180.0) / (a / sqrtMagic * Math.cos(radLat) * PI);
+  const mgLat = lat + dLat;
+  const mgLon = lon + dLon;
+  return [mgLon, mgLat];
+};
+
 const getUserLocation = () => {
   if (!navigator.geolocation) {
     showToast('浏览器不支持定位');
@@ -453,7 +491,9 @@ const getUserLocation = () => {
     (position) => {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
-      userLocation.value = { lat, lng };
+      // 浏览器通常返回 WGS-84，经常需要转换为 GCJ-02（中国范围）以和后端/底图对齐
+      const [convLng, convLat] = wgs84ToGcj02(lng, lat);
+      userLocation.value = { lat: convLat, lng: convLng };
       showToast('定位成功');
       recalculateNearestStation(); // 定位成功后，算一下离哪个站最近
       if (cachedNearestStation.value) {
