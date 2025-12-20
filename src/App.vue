@@ -174,6 +174,11 @@ const isAnimating = ref(false); // 是否正在进行CSS动画（如回弹时）
 const dragStart = reactive({ x: 0, y: 0 }); // 拖拽开始时的鼠标坐标
 const mapStart = reactive({ x: 0, y: 0 });  // 拖拽开始时的地图位置
 const pointerDownPos = reactive({ x: 0, y: 0 }); // 用于区分是点击还是拖拽
+// 用于双指缩放的状态
+const activePointers = new Map<number, { x: number, y: number }>();
+let initialDistance = 0;
+let initialScale = 1;
+let initialPinchMidpoint = { x: 0, y: 0 }; // 记录缩放开始时，中心点在地图上的坐标
 
 let naturalWidth = 0; let naturalHeight = 0; // 图片原始尺寸
 let containerWidth = 0; let containerHeight = 0; // 容器显示尺寸
@@ -255,6 +260,7 @@ const getLimits = () => {
   const limitX = Math.max(0, (currentW - containerWidth) / 2);
   const limitY = Math.max(0, (currentH - containerHeight) / 2);
   const OVERSCROLL = 0; // 允许超出边界的弹性距离
+  
   return {
     limitX: limitX + OVERSCROLL,
     limitY: limitY + OVERSCROLL
@@ -263,47 +269,110 @@ const getLimits = () => {
 
 // [交互] 按下鼠标/手指
 const onPointerDown = (e: PointerEvent) => {
-  isDragging.value = true;
-  isAnimating.value = false; // 拖拽时立刻停止动画，跟随手指
-  dragStart.x = e.clientX;   // 记录起点
-  dragStart.y = e.clientY;
-  mapStart.x = mapState.x;   // 记录地图当前位置
-  mapStart.y = mapState.y;
-  pointerDownPos.x = e.clientX;
-  pointerDownPos.y = e.clientY;
-  // 捕获指针，防止鼠标移出浏览器失效
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   (e.target as HTMLElement).setPointerCapture(e.pointerId);
-};
 
+  if (activePointers.size === 1) {
+    // 单指逻辑：记录起始点用于拖拽
+    isDragging.value = true;
+    isAnimating.value = false;
+    dragStart.x = e.clientX;
+    dragStart.y = e.clientY;
+    mapStart.x = mapState.x;
+    mapStart.y = mapState.y;
+    pointerDownPos.x = e.clientX;
+    pointerDownPos.y = e.clientY;
+  } else if (activePointers.size === 2) {
+    // 双指逻辑：记录初始间距和地图参考中心点
+    isDragging.value = false;
+    const points = Array.from(activePointers.values());
+    initialDistance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+    initialScale = mapState.scale;
+
+    // 计算双指中点在屏幕上的坐标
+    const screenMidX = (points[0].x + points[1].x) / 2;
+    const screenMidY = (points[0].y + points[1].y) / 2;
+
+    // 计算该中点在地图图片内容上的相对坐标（以地图中心为原点）
+    initialPinchMidpoint = {
+      x: (screenMidX - containerWidth / 2 - mapState.x) / mapState.scale,
+      y: (screenMidY - containerHeight / 2 - mapState.y) / mapState.scale
+    };
+  }
+};
+/**
+ * 阻尼计算函数
+ * @param current 当前计算出的位移值 (newX 或 newY)
+ * @param limit 允许的最大物理边界 (limitX 或 limitY)
+ * @returns 经过阻尼处理后的位移值
+ */
+const applyDamping = (current: number, limit: number): number => {
+  if (current > limit) {
+    return limit + Math.pow(current - limit, 0.7);
+  } else if (current < -limit) {
+    return -limit - Math.pow(-limit - current, 0.7);
+  }
+  return current;
+};
 // [交互] 移动鼠标/手指
 const onPointerMove = (e: PointerEvent) => {
-  if (!isDragging.value) return;
-  e.preventDefault();
-  const deltaX = e.clientX - dragStart.x;
-  const deltaY = e.clientY - dragStart.y;
-  let newX = mapStart.x + deltaX;
-  let newY = mapStart.y + deltaY;
+  if (!activePointers.has(e.pointerId)) return;
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-  // 阻尼效果：如果拖拽超出了边界，移动速度变慢 阻尼因子 0.25
-  const { limitX, limitY } = getLimits();
-  if (newX > limitX) newX = limitX + 0.25 * (newX - limitX);
-  else if (newX < -limitX) newX = -limitX - 0.25 * (-limitX - newX);
-  if (newY > limitY) newY = limitY + 0.25 * (newY - limitY);
-  else if (newY < -limitY) newY = -limitY - 0.25 * (-limitY - newY);
+  // --- 双指缩放逻辑 ---
+  if (activePointers.size === 2) {
+    e.preventDefault();
+    const points = Array.from(activePointers.values());
+    const currentDistance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+    
+    let newScale = initialScale * (currentDistance / initialDistance);
+    newScale = Math.max(minScale, Math.min(newScale, 4.0));
 
-  mapState.x = newX;
-  mapState.y = newY;
+    const currentScreenMidX = (points[0].x + points[1].x) / 2;
+    const currentScreenMidY = (points[0].y + points[1].y) / 2;
+
+    // 更新坐标，使中心点对齐
+    mapState.x = currentScreenMidX - containerWidth / 2 - initialPinchMidpoint.x * newScale;
+    mapState.y = currentScreenMidY - containerHeight / 2 - initialPinchMidpoint.y * newScale;
+    
+    mapState.scale = newScale;
+    isAnimating.value = false;
+  } 
+  // --- 单指拖拽逻辑 ---
+  else if (activePointers.size === 1 && isDragging.value) {
+    e.preventDefault();
+    const { limitX, limitY } = getLimits();
+
+    // 1. 计算原始目标位移
+    const targetX = mapStart.x + (e.clientX - dragStart.x);
+    const targetY = mapStart.y + (e.clientY - dragStart.y);
+
+    // 2. 调用拆分出的阻尼函数
+    mapState.x = applyDamping(targetX, limitX);
+    mapState.y = applyDamping(targetY, limitY);
+  }
 };
 
 // [交互] 松开鼠标/手指
 const onPointerUp = (e: PointerEvent) => {
-  isDragging.value = false;
-  (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-  checkBoundsAndSnap(); // 松开后，如果超出了边界，弹回去
+  activePointers.delete(e.pointerId);
 
-  // 判断是点击还是拖拽：如果移动距离小于5px，视为点击
-  const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
-  if (dist < 5) onMapClick();
+  if (activePointers.size === 0) {
+    isDragging.value = false;
+    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    checkBoundsAndSnap(); // 抬起时进行最终边界回弹
+
+    const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+    if (dist < 5) onMapClick();
+  } else if (activePointers.size === 1) {
+    // 关键：如果从双指变为单指，需要重置单指拖拽的起点，否则画面会闪跳
+    const remaining = activePointers.values().next().value;
+    dragStart.x = remaining.x;
+    dragStart.y = remaining.y;
+    mapStart.x = mapState.x;
+    mapStart.y = mapState.y;
+    isDragging.value = true;
+  }
 };
 
 const onMapClick = () => {
