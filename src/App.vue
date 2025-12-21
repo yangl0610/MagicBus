@@ -84,6 +84,18 @@
     <div class="map-container" ref="mapContainerRef" :style="getMapContainerHeight" @pointerdown="onPointerDown"
       @pointermove="onPointerMove" @pointerup="onPointerUp" @pointerleave="onPointerUp" @wheel.prevent="onWheel">
 
+      <div v-if="debugLocation" class="location-debug-panel" style="position: absolute; right: 12px; top: 12px; background: rgba(0,0,0,0.6); color: #fff; padding: 8px 10px; border-radius: 6px; font-size: 12px; z-index:200; min-width:180px;">
+        <div style="font-weight:600; margin-bottom:6px;">定位调试</div>
+        <div>支持定位: <strong>{{ locationDebug.supported ? '✓' : '✗' }}</strong></div>
+        <div>请求已发送: <strong>{{ locationDebug.requestSent ? '✓' : '✗' }}</strong></div>
+        <div>定位成功: <strong>{{ locationDebug.success ? '✓' : '✗' }}</strong></div>
+        <div>定位失败: <strong>{{ locationDebug.failure ? '✓' : '✗' }}</strong></div>
+        <div>坐标转换: <strong>{{ locationDebug.conversionDone ? '✓' : '✗' }}</strong></div>
+        <div>重算最近站: <strong>{{ locationDebug.recalcDone ? '✓' : '✗' }}</strong></div>
+        <div>已跳转视野: <strong>{{ locationDebug.jumped ? '✓' : '✗' }}</strong></div>
+        <div v-if="locationDebug.lastError" style="margin-top:6px;color:#ffcccc;word-break:break-word;">错误: {{ locationDebug.lastError }}</div>
+      </div>
+
       <!-- 背景图层 -->
       <div class="map-wrapper" :class="{ 'is-animating': isAnimating }" :style="wrapperStyle">
         <img ref="mapImgRef" src="/zjgMap.png" class="map-image" alt="Map" draggable="false" @load="initMap" />
@@ -94,9 +106,12 @@
             vector-effect="non-scaling-stroke" />
         </svg>
 
-        <div v-if="userLocation" class="user-marker" :style="getMarkerStyle(userLocation.lat, userLocation.lng)">
-          <div class="user-dot-pulse"></div>
-          <div class="user-dot"></div>
+        <div v-if="userLocation" class="user-marker" :style="getMarkerStyle(userLocation.lat, userLocation.lng, userHeading)">
+          <div class="user-rotate" :style="{ transform: `rotate(${userHeading}deg)` }">
+            <svg class="user-arrow" viewBox="0 0 24 24" width="36" height="36" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2 L20 20 L12 16 L4 20 Z" fill="#1989fa" stroke="#ffffff" stroke-width="0.6" stroke-linejoin="round" />
+            </svg>
+          </div>
         </div>
 
         <!-- 生成站点 -->
@@ -127,6 +142,9 @@
         <div class="control-btn" @click.stop="getUserLocation" :class="{ 'active': userLocation }">
           <van-icon name="location-o" />
         </div>
+          <div class="control-btn debug-toggle" @click.stop="debugLocation = !debugLocation" :class="{ 'active': debugLocation }" title="Toggle location debug">
+            <van-icon name="info-o" />
+          </div>
       </div>
     </div>
 
@@ -153,6 +171,51 @@ const busList = ref<bustype[]>([]);      // 车辆实时数据
 const lastUpdateTime = ref<string>('');  // 上次刷新时间
 const isPanelOpen = ref(true);           // 底部面板是否展开
 const userLocation = ref<{ lat: number, lng: number }>(defaultUserLocation); // 用户GPS坐标
+// 朝向相关：raw->offset->平滑 -> 展示
+const userHeading = ref<number>(0); // 最终用于模板显示的朝向（度）
+const initialHeadingOffset = ref<number>(0); // 不同设备可能需要的初始偏移（度），可根据UA设定
+const _smoothedHeading = { value: 0 }; // 内部平滑缓存（避免频繁触发 ref 更改开销）
+const HEADING_SMOOTHING_ALPHA = 0.28; // EMA 平滑系数，0-1，越小越平滑
+
+// 根据 userAgent 做一个简单设备型号->偏移的映射（经验值，可扩展）
+const determineInitialOffsetFromUA = (ua: string) => {
+  const u = ua.toLowerCase();
+  // 常见厂商示例（仅经验性调整）：
+  if (/huawei|honor/.test(u)) return -90;
+  if (/xiaomi|mi |redmi/.test(u)) return -90;
+  if (/oppo|realme|oneplus/.test(u)) return -90;
+  if (/iphone|ipad|ipod/.test(u)) return 0; // iOS 通常 alpha 定义与安卓不同，保守使用0
+  // 默认不偏移
+  return -90;
+};
+
+// 设备朝向处理函数：读取 e.alpha，应用偏移并做 EMA 平滑，写入 userHeading
+const handleDeviceOrientation = (e: DeviceOrientationEvent) => {
+  if (typeof e.alpha !== 'number' || isNaN(e.alpha)) return;
+  // 原始 alpha 表示设备绕 Z 轴的角度（0-360），不同浏览器参考系差异很大
+  // 把 alpha 转为页面上希望的指向角：先取反（360 - alpha），再加上经验偏移
+  let raw = (360 - e.alpha + 360) % 360; // 规范到 [0,360)
+  raw = (raw + initialHeadingOffset.value + 360) % 360;
+
+  // EMA 平滑（避免抖动）
+  const prev = _smoothedHeading.value || raw;
+  const alpha = HEADING_SMOOTHING_ALPHA;
+  const sm = prev * (1 - alpha) + raw * alpha;
+  _smoothedHeading.value = sm;
+  userHeading.value = Math.round(sm * 100) / 100; // 保留两位小数
+};
+// Debug: whether to show location debug overlay
+const debugLocation = ref(false);
+const locationDebug = reactive({
+  supported: false,
+  requestSent: false,
+  success: false,
+  failure: false,
+  conversionDone: false,
+  recalcDone: false,
+  jumped: false,
+  lastError: '' as string
+});
 const cachedNearestStation = ref<{ station: any, index: number, distance: number } | null>(null); // 缓存的最近站点
 const selectedStationIndex = ref<number | null>(null); // 用户手动点击选中的站点索引
 const bottomPanelRef = ref<HTMLElement | null>(null);
@@ -443,34 +506,114 @@ const resetMap = () => {
 };
 
 // --- [核心逻辑 2] GPS与定位 ---
-const getUserLocation = () => {
-  if (!navigator.geolocation) {
+// 坐标系转换：WGS-84 <-> GCJ-02（中国）
+// 这里实现 WGS-84 -> GCJ-02 的转换，用于把浏览器返回的坐标（通常为 WGS-84）
+// 转换为与后端/底图一致的坐标系（若后端/底图使用 GCJ-02）。
+const PI = 3.14159265358979324;
+const a = 6378245.0;
+const ee = 0.00669342162296594323;
+const outOfChina = (lat: number, lon: number) => {
+  return lon < 72.004 || lon > 137.8347 || lat < 0.8293 || lat > 55.8271;
+};
+const transformLat = (x: number, y: number) => {
+  let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+  ret += (20.0 * Math.sin(y * PI) + 40.0 * Math.sin(y / 3.0 * PI)) * 2.0 / 3.0;
+  ret += (160.0 * Math.sin(y / 12.0 * PI) + 320 * Math.sin(y * PI / 30.0)) * 2.0 / 3.0;
+  return ret;
+};
+const transformLon = (x: number, y: number) => {
+  let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  ret += (20.0 * Math.sin(6.0 * x * PI) + 20.0 * Math.sin(2.0 * x * PI)) * 2.0 / 3.0;
+  ret += (20.0 * Math.sin(x * PI) + 40.0 * Math.sin(x / 3.0 * PI)) * 2.0 / 3.0;
+  ret += (150.0 * Math.sin(x / 12.0 * PI) + 300.0 * Math.sin(x / 30.0 * PI)) * 2.0 / 3.0;
+  return ret;
+};
+const wgs84ToGcj02 = (lon: number, lat: number): [number, number] => {
+  if (outOfChina(lat, lon)) return [lon, lat];
+  let dLat = transformLat(lon - 105.0, lat - 35.0);
+  let dLon = transformLon(lon - 105.0, lat - 35.0);
+  const radLat = lat / 180.0 * PI;
+  let magic = Math.sin(radLat);
+  magic = 1 - ee * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180.0) / ((a * (1 - ee)) / (magic * sqrtMagic) * PI);
+  dLon = (dLon * 180.0) / (a / sqrtMagic * Math.cos(radLat) * PI);
+  const mgLat = lat + dLat;
+  const mgLon = lon + dLon;
+  return [mgLon, mgLat];
+};
+
+const getUserLocation = async () => {
+  // reset debug statuses
+  locationDebug.supported = false;
+  locationDebug.requestSent = false;
+  locationDebug.success = false;
+  locationDebug.failure = false;
+  locationDebug.conversionDone = false;
+  locationDebug.recalcDone = false;
+  locationDebug.jumped = false;
+  locationDebug.lastError = '';
+
+  locationDebug.supported = !!navigator.geolocation;
+  if (!locationDebug.supported) {
     showToast('浏览器不支持定位');
+    locationDebug.failure = true;
     return;
   }
+
+  // 如果需要，在用户手势内请求 DeviceOrientation 权限（iOS 13+）
+  try {
+    const req = (DeviceOrientationEvent as any)?.requestPermission;
+    if (typeof req === 'function') {
+      try {
+        const perm = await req();
+        if (perm === 'granted') {
+          try { window.addEventListener('deviceorientation', handleDeviceOrientation as EventListener, true); } catch (e) { }
+        } else {
+          locationDebug.lastError = 'DeviceOrientation 权限未授予';
+        }
+      } catch (e) {
+        // requestPermission 可能在某些浏览器抛错
+      }
+    }
+  } catch (e) { }
+
   showToast('正在定位...');
+  locationDebug.requestSent = true;
   navigator.geolocation.getCurrentPosition(
     (position) => {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
-      userLocation.value = { lat, lng };
+      // 浏览器通常返回 WGS-84，经常需要转换为 GCJ-02（中国范围）以和后端/底图对齐
+      const [convLng, convLat] = wgs84ToGcj02(lng, lat);
+      locationDebug.conversionDone = true;
+      userLocation.value = { lat: convLat, lng: convLng };
+      locationDebug.success = true;
       showToast('定位成功');
       recalculateNearestStation(); // 定位成功后，算一下离哪个站最近
+      locationDebug.recalcDone = true;
       if (cachedNearestStation.value) {
         selectedStationIndex.value = cachedNearestStation.value.index;
       }
+      // 跳转到用户位置并记录
+      jumpToUserLocation();
     },
     (error) => {
       console.error(error);
+      locationDebug.failure = true;
+      locationDebug.lastError = error?.message || String(error);
       showToast('定位失败，请检查权限');
-    }
+    },
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
   );
-  jumpToUserLocation(); // 视野跳转到人所在的位置
 };
 
 const jumpToUserLocation = () => {
   if (!userLocation.value) return;
   jumpToCoords(userLocation.value.lat, userLocation.value.lng);
+  // record that a jump happened (for debug overlay)
+  locationDebug.jumped = true;
 };
 
 // [算法] 将经纬度点移动到地图中心
@@ -801,6 +944,8 @@ const onTabChange = ({ name }: any) => {
 
 // 生命周期：挂载后启动轮询
 onMounted(() => {
+  // 根据 UA 设定初始偏移（经验值）
+  try { initialHeadingOffset.value = determineInitialOffsetFromUA(navigator.userAgent || ''); } catch (e) { initialHeadingOffset.value = 0; }
   fetchLinedata();
   fetchBusData();
   getUserLocation();
@@ -824,8 +969,17 @@ onMounted(() => {
     MapObserver.observe(mapContainerRef.value);
   }
   timer = setInterval(fetchBusData, 3000); // 每3秒刷新一次车辆位置
+  // 只有在非 iOS requestPermission 场景下直接注册监听，iOS 13+ 需要在用户手势内 requestPermission
+  try {
+    if (!(DeviceOrientationEvent as any)?.requestPermission) {
+      window.addEventListener('deviceorientation', handleDeviceOrientation as EventListener, true);
+    }
+  } catch (err) { }
 });
-onUnmounted(() => { if (timer) clearInterval(timer); });
+onUnmounted(() => {
+  if (timer) clearInterval(timer);
+  try { window.removeEventListener('deviceorientation', handleDeviceOrientation as EventListener, true); } catch (e) { }
+});
 </script>
 
 <style scoped>
@@ -841,5 +995,23 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
   bottom: 6px !important;
   height: 4px !important;
   border-radius: 4px !important;
+}
+
+/* User arrow marker styles */
+.user-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.user-rotate {
+  transform-origin: 50% 60%; /* lower than center so arrow pivot feels natural */
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.user-arrow {
+  filter: drop-shadow(0 1px 4px rgba(0,0,0,0.25));
 }
 </style>
