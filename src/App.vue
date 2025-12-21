@@ -38,6 +38,21 @@
             <div class="nearest-bus-info empty" v-else>
               <span class="nb-label">暂无车辆</span>
             </div>
+            <!-- 校车到达闹钟 -->
+            <div class="alarm-controls">
+              <label style="display:inline-flex;align-items:center;gap:6px;">
+                <input type="checkbox" v-model="alarmEnabled" />
+                <span>到站闹钟</span>
+              </label>
+              <select v-model.number="alarmOffset" style="margin-left:8px;">
+                <option :value="0">到站时</option>
+                <option :value="1">提前1分钟</option>
+                <option :value="3">提前3分钟</option>
+                <option :value="5">提前5分钟</option>
+                <option :value="10">提前10分钟</option>
+              </select>
+              <div class="alarm-scheduled" v-if="alarmScheduledText" style="font-size:12px;color:#666;margin-top:4px;">{{ alarmScheduledText }}</div>
+            </div>
           </div>
         </div>
 
@@ -602,8 +617,21 @@ const getUserLocation = async () => {
     (error) => {
       console.error(error);
       locationDebug.failure = true;
-      locationDebug.lastError = error?.message || String(error);
-      showToast('定位失败，请检查权限');
+      // Map GeolocationPositionError codes to friendly messages
+      let friendly = '定位失败';
+      try {
+        if (error && typeof error.code === 'number') {
+          // 1: PERMISSION_DENIED, 2: POSITION_UNAVAILABLE, 3: TIMEOUT
+          if (error.code === 1) friendly = '定位被拒绝，请允许定位权限';
+          else if (error.code === 2) friendly = '位置信息不可用';
+          else if (error.code === 3) friendly = '定位超时，请重试';
+        }
+      } catch (e) { /* ignore */ }
+
+      const detailed = error?.message ? `${friendly}: ${error.message}` : friendly;
+      locationDebug.lastError = detailed;
+      // show a more informative toast for the user
+      showToast(detailed);
     },
     { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
   );
@@ -911,6 +939,114 @@ const getDestinationName = () => {
 };
 
 const focusBus = (bus: bustype) => { console.log("选中车辆", bus.vehiNum); };
+
+// --- 校车到达闹钟 (Alarm) ---
+const alarmEnabled = ref<boolean>(false);
+const alarmOffset = ref<number>(3); // minutes before arrival
+let alarmTimerId: number | null = null;
+const alarmScheduledAt = ref<number | null>(null);
+
+const getTargetStationIndex = () => {
+  if (selectedStationIndex.value !== null) return selectedStationIndex.value;
+  if (nearestStationToUser.value) return nearestStationToUser.value.index;
+  return null;
+};
+
+const computeEtaMinutes = (): number | null => {
+  const idx = getTargetStationIndex();
+  if (idx === null || idx === undefined) return null;
+  const eta = getStationETA(idx as number);
+  if (!eta) return null;
+  if (eta.isArriving) return 0;
+  const matches = eta.text.match(/(\d+)/);
+  return matches ? parseInt(matches[0], 10) : null;
+};
+
+const clearAlarmTimer = () => {
+  if (alarmTimerId !== null) {
+    clearTimeout(alarmTimerId);
+    alarmTimerId = null;
+  }
+  alarmScheduledAt.value = null;
+};
+
+const playAlarmSound = () => {
+  try {
+    const AC = (window.AudioContext || (window as any).webkitAudioContext);
+    if (!AC) return;
+    const ac = new AC();
+    const o = ac.createOscillator();
+    const g = ac.createGain();
+    o.type = 'sine';
+    o.frequency.value = 880;
+    o.connect(g);
+    g.connect(ac.destination);
+    g.gain.value = 0.0001;
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.2, ac.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 2.0);
+    setTimeout(() => { try { o.stop(); ac.close(); } catch (e) { } }, 2100);
+  } catch (e) { }
+};
+
+const triggerAlarm = (message?: string) => {
+  const msg = message || '校车即将到站，请准备乘车';
+  try {
+    if (Notification && Notification.permission === 'granted') {
+      new Notification('校车提醒', { body: msg });
+    } else {
+      showToast(msg);
+    }
+  } catch (e) { showToast(msg); }
+  try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
+  playAlarmSound();
+  // disable after trigger
+  alarmEnabled.value = false;
+  clearAlarmTimer();
+};
+
+const scheduleAlarm = () => {
+  clearAlarmTimer();
+  if (!alarmEnabled.value) return;
+  const etaMin = computeEtaMinutes();
+  if (etaMin === null) return;
+  const delayMs = Math.max(0, etaMin * 60 * 1000 - alarmOffset.value * 60 * 1000);
+  const scheduledAt = Date.now() + delayMs;
+  alarmScheduledAt.value = scheduledAt;
+  if (delayMs <= 0) {
+    // already within offset window -> trigger immediately
+    setTimeout(() => triggerAlarm(), 200);
+    return;
+  }
+  alarmTimerId = window.setTimeout(() => {
+    triggerAlarm();
+  }, delayMs) as unknown as number;
+};
+
+const requestNotificationIfNeeded = async () => {
+  try {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      await Notification.requestPermission();
+    }
+  } catch (e) { }
+};
+
+const alarmScheduledText = computed(() => {
+  if (!alarmScheduledAt.value) return '';
+  const d = new Date(alarmScheduledAt.value);
+  return `提醒时间: ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+});
+
+// watch for changes to reschedule
+watch([() => alarmEnabled.value, () => alarmOffset.value, () => selectedStationIndex.value, () => nearestStationToUser.value, () => busList.value.length], async () => {
+  if (alarmEnabled.value) await requestNotificationIfNeeded();
+  scheduleAlarm();
+});
+
+onUnmounted(() => {
+  clearAlarmTimer();
+});
 
 // [API] 获取线路列表
 const fetchLinedata = async () => {
