@@ -1,5 +1,10 @@
 import requests
 import json
+import os
+ 
+# 获取当前工作目录
+cwd = os.getcwd()
+print(cwd)
 
 # 接口地址
 url = "https://bccx.zju.edu.cn/schoolbus_wx/xbc/getXbcLine"
